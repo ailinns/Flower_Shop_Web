@@ -1,0 +1,207 @@
+require('dotenv').config();
+const express = require('express');
+const mysql = require('mysql2/promise');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Enable CORS
+app.use(express.json());
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'flower_shop_db',
+  waitForConnections: true,
+  connectionLimit: 10,
+  namedPlaceholders: true
+});
+
+
+app.get("/api/regions", async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT region_id, region_name FROM region ORDER BY region_name"
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Regions API Error:', err.message);
+    res.status(500).json({ 
+      error: 'Failed to load regions',
+      detail: err.message 
+    });
+  }
+});
+
+app.get("/api/branches", async (req, res) => {
+  try {
+    let query = `
+      SELECT b.branch_id, b.branch_name, p.province_name, r.region_id, r.region_name
+      FROM branch b
+      JOIN province p ON b.province_id = p.province_id
+      JOIN region r ON p.region_id = r.region_id
+    `;
+    const params = [];
+
+    // ถ้าส่ง region_id มา ให้กรองเฉพาะที่ภาคนั้น
+    if (req.query.region_id) {
+      query += " WHERE r.region_id = ?";
+      params.push(req.query.region_id);
+    }
+
+    query += " ORDER BY b.branch_name";
+    const [rows] = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Branches API Error:', err.message);
+    res.status(500).json({ 
+      error: 'Failed to load branches',
+      detail: err.message 
+    });
+  }
+});
+
+// VASES: products where product_type_id corresponds to vase (default 2)
+app.get('/api/vases', async (req, res) => {
+  try {
+    const productTypeId = Number(req.query.product_type_id || 2);
+    const [rows] = await pool.query(
+      'SELECT product_id, product_name, product_price AS price, product_type_id FROM product WHERE product_type_id = ? ORDER BY product_name',
+      [productTypeId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Vases API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load vases', detail: err.message });
+  }
+});
+
+// Vase colors
+app.get('/api/vase-colors', async (_req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT vase_color_id, vase_color_name AS color_name, hex FROM vase_color ORDER BY vase_color_id');
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Vase Colors API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load vase colors', detail: err.message });
+  }
+});
+
+// Flower types
+app.get('/api/flower-types', async (_req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT flower_type_id AS flower_id, flower_name FROM flower_type ORDER BY flower_name');
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Flower Types API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load flower types', detail: err.message });
+  }
+});
+
+// Create order (transactional)
+app.post('/api/orders', async (req, res) => {
+  const payload = req.body || {};
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // Generate unique order code ORD########
+    const genOrderCode = async () => {
+      while (true) {
+        const n = Math.floor(10000000 + Math.random() * 90000000);
+        const code = `ORD${n}`;
+        const [r] = await conn.query('SELECT 1 FROM `order` WHERE order_code = ?', [code]);
+        if (r.length === 0) return code;
+      }
+    };
+    const orderCode = await genOrderCode();
+
+    // Resolve branch_id
+    let branchId = payload.branch_id ?? null;
+    if (!branchId && payload.branch) {
+      const [brows] = await conn.query('SELECT branch_id FROM branch WHERE branch_name = ? LIMIT 1', [payload.branch]);
+      if (brows.length) branchId = brows[0].branch_id;
+    }
+
+    // Insert or find customer by phone
+    const customer = payload.customer || {};
+    let customerId = null;
+    if (customer.phone) {
+      const [found] = await conn.query('SELECT customer_id FROM customer WHERE phone = ? LIMIT 1', [customer.phone]);
+      if (found.length > 0) customerId = found[0].customer_id;
+    }
+    if (!customerId) {
+      const [insCust] = await conn.query('INSERT INTO customer (customer_name, phone) VALUES (?, ?)', [customer.name || null, customer.phone || null]);
+      customerId = insCust.insertId;
+    }
+
+    // province for address
+    let provinceId = null;
+    if (payload.receiver && payload.receiver.province_id) provinceId = payload.receiver.province_id;
+    else {
+      const [p] = await conn.query('SELECT province_id FROM province ORDER BY RAND() LIMIT 1');
+      provinceId = p.length ? p[0].province_id : null;
+    }
+
+    // Insert customer_address
+    const receiver = payload.receiver || {};
+    await conn.query(
+      'INSERT INTO customer_address (customer_id, province_id, receiver_name, receiver_phone, receiver_address) VALUES (?, ?, ?, ?, ?)',
+      [customerId, provinceId, receiver.name || customer.name || null, receiver.phone || customer.phone || null, receiver.address || (payload.pickup ? 'ที่ร้าน' : null)]
+    );
+
+    // Insert order
+    const [insOrder] = await conn.query(
+      'INSERT INTO `order` (branch_id, customer_id, promotion_id, customer_note, order_code, order_status, total_amount, florist_photo_url, rider_photo_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [branchId, customerId, payload.promotion_id || null, payload.customer_note || null, orderCode, 'PENDING', payload.total_amount || 0, null, null]
+    );
+    const orderId = insOrder.insertId;
+
+    // Insert payment if provided
+    if (payload.payment) {
+      // use provided slip_image or generate a random placeholder filename
+      const slipImage = payload.payment.slip_image || `slip_${Date.now()}_${Math.floor(Math.random()*900000+100000)}.jpg`;
+      await conn.query('INSERT INTO payment (order_id, slip_image, paid_at) VALUES (?, ?, NOW())', [orderId, slipImage]);
+    }
+
+    // Insert shopping_cart items and customizations
+    if (Array.isArray(payload.items)) {
+      for (const it of payload.items) {
+        const [insCart] = await conn.query('INSERT INTO shopping_cart (order_id, product_id, qty, price_total) VALUES (?, ?, ?, ?)', [orderId, it.product_id, it.qty || 1, it.price_total || 0]);
+        const shoppingCartId = insCart.insertId;
+        if (it.bouquet_style_id) {
+          await conn.query('INSERT INTO bouquet_customization (shopping_cart_id, bouquet_style_id) VALUES (?, ?)', [shoppingCartId, it.bouquet_style_id]);
+        }
+        if (it.vase_color_id) {
+          await conn.query('INSERT INTO vase_customization (shopping_cart_id, vase_color_id) VALUES (?, ?)', [shoppingCartId, it.vase_color_id]);
+        }
+        if (Array.isArray(it.flowers)) {
+          for (const ftId of it.flowers) {
+            await conn.query('INSERT INTO flower_detail (shopping_cart_id, flower_type_id) VALUES (?, ?)', [shoppingCartId, ftId]);
+          }
+        }
+      }
+    }
+
+    await conn.commit();
+    res.json({ success: true, order_id: orderId, order_code: orderCode });
+  } catch (err) {
+    await conn.rollback().catch(() => {});
+    console.error('❌ Create Order Error:', err.message);
+    res.status(500).json({ error: 'Failed to create order', detail: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+app.listen(PORT, () => console.log(`✅ API listening on http://localhost:${PORT}`));

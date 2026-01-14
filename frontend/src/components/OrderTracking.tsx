@@ -1,0 +1,266 @@
+import { useState } from 'react';
+import { OrderData } from '../App';
+import { Search, Package, Truck, CheckCircle, MapPin, Phone, User, Home, Clock } from 'lucide-react';
+import { ImageWithFallback } from './figma/ImageWithFallback';
+
+interface OrderTrackingProps {
+  savedOrders: OrderData[];
+  onBackToHome: () => void;
+}
+
+type OrderStatus = 'received' | 'preparing' | 'shipping' | 'delivered';
+
+export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps) {
+  const [searchOrderId, setSearchOrderId] = useState('');
+  const [currentOrder, setCurrentOrder] = useState<OrderData | null>(null);
+  const [orderStatus, setOrderStatus] = useState<OrderStatus>('received');
+
+  const handleSearch = () => {
+    const found = savedOrders.find(order => order.orderId === searchOrderId.trim());
+    if (found) {
+      setCurrentOrder(found);
+      // Simulate random status for demo
+      const statuses: OrderStatus[] = ['received', 'preparing', 'shipping', 'delivered'];
+      const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
+      setOrderStatus(randomStatus);
+    } else {
+      setCurrentOrder(null);
+      alert('ไม่พบคำสั่งซื้อนี้');
+    }
+  };
+
+  const statusSteps = [
+    { status: 'received', label: 'รับคำสั่งซื้อ', icon: Package },
+    { status: 'preparing', label: 'กำลังจัดเตรียม', icon: Clock },
+    { status: 'shipping', label: 'กำลังจัดส่ง', icon: Truck },
+    { status: 'delivered', label: 'จัดส่งสำเร็จ', icon: CheckCircle },
+  ];
+
+  const getStatusIndex = (status: OrderStatus): number => {
+    return statusSteps.findIndex(step => step.status === status);
+  };
+
+  const currentStatusIndex = getStatusIndex(orderStatus);
+
+  const colorLabels: Record<string, string> = {
+    pink: 'ชมพู',
+    red: 'แดง',
+    white: 'ขาว',
+    yellow: 'เหลือง',
+    purple: 'ม่วง',
+  };
+
+  const flowerTypeLabels: Record<string, string> = {
+    rose: 'กุหลาบ',
+    lily: 'ลิลลี่',
+    tulip: 'ทิวลิป',
+    orchid: 'กล้วยไม้',
+    sunflower: 'ทานตะวัน',
+  };
+
+  return (
+    <div className="min-h-screen p-6 bg-gray-50">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-8 bg-white/90 backdrop-blur-sm rounded-2xl p-6 shadow-md border border-gray-200">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 bg-gradient-to-br from-blue-50 via-cyan-50 to-blue-100">
+            <Search className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="mb-2">ตรวจสอบคำสั่งซื้อ</h1>
+          <p className="text-gray-600">ค้นหาคำสั่งซื้อของคุณด้วยรหัสคำสั่งซื้อ</p>
+        </div>
+
+        {/* Search Box */}
+        <div className="bg-white rounded-2xl p-6 shadow-md mb-6">
+          <div className="flex gap-3">
+            <input
+              type="text"
+              value={searchOrderId}
+              onChange={(e) => setSearchOrderId(e.target.value)}
+              placeholder="กรอกรหัสคำสั่งซื้อ (เช่น ORD12345678)"
+              className="flex-1 px-4 py-3 rounded-xl border-2 outline-none transition-all"
+              style={{
+                borderColor: searchOrderId ? '#AEE6FF' : '#e5e7eb',
+              }}
+              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+            />
+            <button
+              onClick={handleSearch}
+              className="px-6 py-3 rounded-xl text-white transition-all hover:opacity-90"
+              style={{ backgroundColor: '#AEE6FF' }}
+            >
+              <Search className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Order Details */}
+        {currentOrder && (
+          <>
+            {/* Status Timeline */}
+            <div className="bg-white rounded-2xl p-6 shadow-md mb-6">
+              <h3 className="mb-6 text-gray-800">สถานะคำสั่งซื้อ</h3>
+              
+              <div className="relative">
+                {/* Progress Line */}
+                <div className="absolute top-6 left-0 w-full h-1 bg-gray-200">
+                  <div
+                    className="h-full transition-all duration-500"
+                    style={{
+                      backgroundColor: '#AEE6FF',
+                      width: `${(currentStatusIndex / (statusSteps.length - 1)) * 100}%`,
+                    }}
+                  />
+                </div>
+
+                {/* Status Steps */}
+                <div className="relative flex justify-between">
+                  {statusSteps.map((step, index) => {
+                    const StepIcon = step.icon;
+                    const isCompleted = index <= currentStatusIndex;
+                    const isCurrent = index === currentStatusIndex;
+
+                    return (
+                      <div key={step.status} className="flex flex-col items-center">
+                        <div
+                          className="w-12 h-12 rounded-full flex items-center justify-center mb-2 transition-all border-2"
+                          style={{
+                            backgroundColor: isCompleted ? '#AEE6FF' : 'white',
+                            borderColor: isCompleted ? '#AEE6FF' : '#e5e7eb',
+                          }}
+                        >
+                          <StepIcon
+                            className="w-6 h-6"
+                            style={{ color: isCompleted ? 'white' : '#9ca3af' }}
+                          />
+                        </div>
+                        <p
+                          className="text-xs text-center max-w-20"
+                          style={{ 
+                            color: isCurrent ? '#AEE6FF' : isCompleted ? '#374151' : '#9ca3af',
+                            fontWeight: isCurrent ? '600' : '400'
+                          }}
+                        >
+                          {step.label}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Order Information */}
+            <div className="bg-white rounded-2xl p-6 shadow-md mb-6">
+              <h3 className="mb-4 text-gray-800">รายละเอียดคำสั่งซื้อ</h3>
+              
+              <div className="grid md:grid-cols-2 gap-4 mb-6">
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">รหัสคำสั่งซื้อ</p>
+                    <p className="text-gray-900">{currentOrder.orderId}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">สาขา</p>
+                    <p className="text-gray-900">{currentOrder.branch}</p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">จำนวนสินค้า</p>
+                    <p className="text-gray-900">{currentOrder.items.length} รายการ</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">ยอดรวม</p>
+                    <p className="text-gray-900">฿{currentOrder.totalAmount.toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Items List */}
+              <div className="border-t pt-4">
+                <h4 className="mb-4 text-gray-800">รายการสินค้า</h4>
+                <div className="space-y-3">
+                  {currentOrder.items.map((item) => (
+                    <div key={item.id} className="flex gap-3 p-3 bg-gray-50 rounded-xl">
+                      <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
+                        <ImageWithFallback
+                          src={item.imageUrl}
+                          alt="สินค้า"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-gray-800 text-sm mb-1">
+                          {item.productType === 'bouquet' 
+                            ? `ช่อดอกไม้ - ${item.bouquetStyle === 'round' ? 'แบบกลม' : 'แบบยาว'}`
+                            : 'แจกันดอกไม้'}
+                        </p>
+                        <p className="text-xs text-gray-600">
+                          {flowerTypeLabels[item.flowerType]} • {colorLabels[item.color]}
+                        </p>
+                      </div>
+                      <div className="text-gray-900 text-sm">
+                        ฿{item.price.toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Delivery Information */}
+            <div className="bg-white rounded-2xl p-6 shadow-md mb-6">
+              <h3 className="mb-4 text-gray-800">ข้อมูลการจัดส่ง</h3>
+              
+              <div className="space-y-4">
+                <div className="flex gap-3">
+                  <User className="w-5 h-5 flex-shrink-0" style={{ color: '#AEE6FF' }} />
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">ชื่อผู้รับ</p>
+                    <p className="text-gray-900">{currentOrder.customerName}</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <MapPin className="w-5 h-5 flex-shrink-0" style={{ color: '#AEE6FF' }} />
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">ที่อยู่จัดส่ง</p>
+                    <p className="text-gray-900">{currentOrder.address}</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <Phone className="w-5 h-5 flex-shrink-0" style={{ color: '#AEE6FF' }} />
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">เบอร์โทรศัพท์</p>
+                    <p className="text-gray-900">{currentOrder.phone}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Back to Home Button */}
+        <button
+          onClick={onBackToHome}
+          className="w-full py-4 rounded-xl bg-white border-2 text-gray-700 flex items-center justify-center gap-2 transition-all hover:bg-gray-50"
+          style={{ borderColor: '#AEE6FF' }}
+        >
+          <Home className="w-5 h-5" />
+          กลับไปหน้าแรก
+        </button>
+
+        {/* Help Text */}
+        {!currentOrder && (
+          <div className="mt-6 text-center">
+            <p className="text-sm text-gray-500">
+              หากคุณมีปัญหาในการค้นหาคำสั่งซื้อ กรุณาติดต่อเรา
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
