@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { OrderData } from '../App';
 import { Search, Package, Truck, CheckCircle, MapPin, Phone, User, Home, Clock } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
+import Swal from 'sweetalert2';
+import mysql from "mysql2/promise";
 
 interface OrderTrackingProps {
   savedOrders: OrderData[];
@@ -12,22 +14,40 @@ type OrderStatus = 'received' | 'preparing' | 'shipping' | 'delivered';
 
 export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps) {
   const [searchOrderId, setSearchOrderId] = useState('');
-  const [currentOrder, setCurrentOrder] = useState<OrderData | null>(null);
+  const [currentOrder, setCurrentOrder] = useState<any>(null);
   const [orderStatus, setOrderStatus] = useState<OrderStatus>('received');
 
-  const handleSearch = () => {
-    const found = savedOrders.find(order => order.orderId === searchOrderId.trim());
-    if (found) {
-      setCurrentOrder(found);
-      // Simulate random status for demo
-      const statuses: OrderStatus[] = ['received', 'preparing', 'shipping', 'delivered'];
-      const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
-      setOrderStatus(randomStatus);
+  const handleSearch = async () => {
+    const data = await searchOrder(searchOrderId);
+    console.log("search data", data);
+    if (data.message !== "Server error") {
+      setCurrentOrder(data);
+      console.log("currentOrder", data);
+      setOrderStatus(data.order.order_status as OrderStatus);
     } else {
       setCurrentOrder(null);
-      alert('ไม่พบคำสั่งซื้อนี้');
+      NotFoundAlert();
     }
   };
+
+  async function searchOrder(orderCode: string) {
+    const res = await fetch("http://localhost:3000/api/orders/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order_code: orderCode }),
+    });
+      const data = await res.json();
+      return data;
+      
+  }
+
+  const NotFoundAlert = () => {
+    Swal.fire({
+        icon: 'error',
+        title: 'ไม่พบคำสั่งซื้อ',
+        text: 'กรุณาตรวจสอบรหัสคำสั่งซื้ออีกครั้ง',
+    });
+  }
 
   const statusSteps = [
     { status: 'received', label: 'รับคำสั่งซื้อ', icon: Package },
@@ -42,21 +62,7 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
 
   const currentStatusIndex = getStatusIndex(orderStatus);
 
-  const colorLabels: Record<string, string> = {
-    pink: 'ชมพู',
-    red: 'แดง',
-    white: 'ขาว',
-    yellow: 'เหลือง',
-    purple: 'ม่วง',
-  };
 
-  const flowerTypeLabels: Record<string, string> = {
-    rose: 'กุหลาบ',
-    lily: 'ลิลลี่',
-    tulip: 'ทิวลิป',
-    orchid: 'กล้วยไม้',
-    sunflower: 'ทานตะวัน',
-  };
 
   return (
     <div className="min-h-screen p-6 bg-gray-50">
@@ -95,7 +101,7 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
         </div>
 
         {/* Order Details */}
-        {currentOrder && (
+        {currentOrder?.records && (
           <>
             {/* Status Timeline */}
             <div className="bg-white rounded-2xl p-6 shadow-md mb-6">
@@ -158,21 +164,21 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
                 <div className="space-y-3">
                   <div>
                     <p className="text-sm text-gray-600 mb-1">รหัสคำสั่งซื้อ</p>
-                    <p className="text-gray-900">{currentOrder.orderId}</p>
+                    <p className="text-gray-900">{currentOrder.order.order_code}</p>
                   </div>
                   <div>
                     <p className="text-sm text-gray-600 mb-1">สาขา</p>
-                    <p className="text-gray-900">{currentOrder.branch}</p>
+                    <p className="text-gray-900">{currentOrder.order.branch_name}</p>
                   </div>
                 </div>
                 <div className="space-y-3">
                   <div>
                     <p className="text-sm text-gray-600 mb-1">จำนวนสินค้า</p>
-                    <p className="text-gray-900">{currentOrder.items.length} รายการ</p>
+                    <p className="text-gray-900">{currentOrder.records.length} รายการ</p>
                   </div>
                   <div>
                     <p className="text-sm text-gray-600 mb-1">ยอดรวม</p>
-                    <p className="text-gray-900">฿{currentOrder.totalAmount.toLocaleString()}</p>
+                    <p className="text-gray-900">฿{currentOrder.order.total_amount}</p>
                   </div>
                 </div>
               </div>
@@ -181,27 +187,27 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
               <div className="border-t pt-4">
                 <h4 className="mb-4 text-gray-800">รายการสินค้า</h4>
                 <div className="space-y-3">
-                  {currentOrder.items.map((item) => (
-                    <div key={item.id} className="flex gap-3 p-3 bg-gray-50 rounded-xl">
+                  {currentOrder.records.map((item) => (
+                    <div key={item.shopping_cart_id} className="flex gap-3 p-3 bg-gray-50 rounded-xl">
                       <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
                         <ImageWithFallback
-                          src={item.imageUrl}
+                          src=""
                           alt="สินค้า"
                           className="w-full h-full object-cover"
                         />
                       </div>
                       <div className="flex-1">
                         <p className="text-gray-800 text-sm mb-1">
-                          {item.productType === 'bouquet' 
-                            ? `ช่อดอกไม้ - ${item.bouquetStyle === 'round' ? 'แบบกลม' : 'แบบยาว'}`
-                            : 'แจกันดอกไม้'}
+                          {item.product_type_name} ({item.product_name})
                         </p>
                         <p className="text-xs text-gray-600">
-                          {flowerTypeLabels[item.flowerType]} • {colorLabels[item.color]}
+                          ดอกไม้ : {item.flowers}
+                          <br></br>
+                          สี : {item.vase_color_name}
                         </p>
                       </div>
                       <div className="text-gray-900 text-sm">
-                        ฿{item.price.toLocaleString()}
+                        ฿{item.price_total.toLocaleString()}
                       </div>
                     </div>
                   ))}
@@ -218,7 +224,7 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
                   <User className="w-5 h-5 flex-shrink-0" style={{ color: '#AEE6FF' }} />
                   <div>
                     <p className="text-sm text-gray-600 mb-1">ชื่อผู้รับ</p>
-                    <p className="text-gray-900">{currentOrder.customerName}</p>
+                    <p className="text-gray-900">{currentOrder.order.receiver_name}</p>
                   </div>
                 </div>
 
@@ -226,7 +232,7 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
                   <MapPin className="w-5 h-5 flex-shrink-0" style={{ color: '#AEE6FF' }} />
                   <div>
                     <p className="text-sm text-gray-600 mb-1">ที่อยู่จัดส่ง</p>
-                    <p className="text-gray-900">{currentOrder.address}</p>
+                    <p className="text-gray-900">{currentOrder.order.receiver_address}</p>
                   </div>
                 </div>
 
@@ -234,7 +240,7 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
                   <Phone className="w-5 h-5 flex-shrink-0" style={{ color: '#AEE6FF' }} />
                   <div>
                     <p className="text-sm text-gray-600 mb-1">เบอร์โทรศัพท์</p>
-                    <p className="text-gray-900">{currentOrder.phone}</p>
+                    <p className="text-gray-900">{currentOrder.order.receiver_phone}</p>
                   </div>
                 </div>
               </div>

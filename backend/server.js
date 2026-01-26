@@ -5,6 +5,11 @@ const mysql = require('mysql2/promise');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+
+const multer = require("multer");
+
+const upload = multer(); // memory storage
+
 // Enable CORS
 app.use(express.json());
 app.use((req, res, next) => {
@@ -203,5 +208,90 @@ app.post('/api/orders', async (req, res) => {
     conn.release();
   }
 });
+
+app.post("/check-slips", upload.single("files"), async (req, res) => {
+  try {
+    const form = new FormData();
+    form.append("files", new Blob([req.file.buffer]), req.file.originalname);
+
+    const r = await fetch("https://api.slipok.com/api/line/apikey/59785", {
+      method: "POST",
+      headers: {
+        "x-authorization": "SLIPOKXF2FXLL",
+      },
+      body: form,
+    });
+
+    const data = await r.json();
+    return res.status(r.status).json(data);
+  } catch (e) {
+    return res.status(500).json({ error: String(e) });
+  }
+});
+
+app.post("/api/orders/search", async (req, res) => {
+  
+  try {
+    const { order_code } = req.body;
+    console.log("yes2", order_code);
+    if (!order_code || typeof order_code !== "string") {
+      return res.status(400).json({ message: "order_code ไม่ถูกต้อง" });
+    }
+    
+    const [rows] = await pool.execute(
+  `
+  SELECT 
+    o.*,
+    b.branch_name,
+    ca.receiver_name,
+    ca.receiver_phone,
+    ca.receiver_address
+  FROM \`order\` o
+  JOIN branch b ON b.branch_id = o.branch_id
+  JOIN customer_address ca ON ca.customer_id = o.customer_id
+  WHERE o.order_code = ?
+  `,
+  [order_code]
+);
+    const [carts] = await pool.execute(
+      `
+  SELECT 
+    sc.*,
+    pr.product_name,
+    pt.product_type_name,
+    GROUP_CONCAT(ft.flower_name ORDER BY ft.flower_name SEPARATOR ', ') AS flowers,
+    vco.vase_color_name
+
+  FROM \`shopping_cart\` sc
+  JOIN product pr ON pr.product_id = sc.product_id
+  JOIN product_type pt ON pt.product_type_id = pr.product_type_id
+  LEFT JOIN flower_detail fd ON fd.shopping_cart_id = sc.shopping_cart_id
+  LEFT JOIN flower_type ft ON ft.flower_type_id = fd.flower_type_id
+  LEFT JOIN vase_customization vc ON vc.shopping_cart_id = sc.shopping_cart_id
+  LEFT JOIN vase_color vco ON vco.vase_color_id = vc.vase_color_id
+  WHERE sc.order_id = ?
+  GROUP BY 
+  sc.shopping_cart_id,
+  pr.product_name;
+  `,
+      [rows[0].order_id]
+    );
+    console.log("carts", carts);
+
+    const list = rows;
+    if (list.length === 0) {
+      return res.status(404).json({ message: "ไม่พบคำสั่งซื้อ" });
+    }
+
+    return res.json({
+      message: "พบคำสั่งซื้อ",
+      order: list[0],
+      records: carts,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
 
 app.listen(PORT, () => console.log(`✅ API listening on http://localhost:${PORT}`));

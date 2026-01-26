@@ -97,6 +97,7 @@ export function DeliveryInfo({ orderId, onConfirm }: DeliveryInfoProps) {
 
               {/* Address Input (only for delivery) */}
               {deliveryType === 'delivery' && (
+                
                 <div>
                   <label className="block mb-2 text-gray-700">
                     ที่อยู่จัดส่ง <span className="text-red-500">*</span>

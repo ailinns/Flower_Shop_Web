@@ -1,6 +1,6 @@
 import { QrCode, Upload, X } from 'lucide-react';
 import { useState } from 'react';
-
+import Swal from 'sweetalert2';
 interface PaymentProps {
   totalAmount: number;
   // pass the selected slip file (or null) back to parent
@@ -10,17 +10,71 @@ interface PaymentProps {
 
 export function Payment({ totalAmount, onConfirm, onCancel }: PaymentProps) {
   const [slip, setSlip] = useState<File | null>(null);
+  const [slipOkData, setslipOkData] = useState([]);
 
   const handleSlipUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setSlip(e.target.files[0]);
+      console.log("update");
     }
   };
+  console.log("selected",slip)
 
   const handleConfirm = () => {
     if (slip) {
-      onConfirm(slip);
+      slipSubmit();
     }
+  };
+
+  const slipSubmit = async () => {
+    Loading();
+    try{
+      console.log("trying",slip);
+      const formData = new FormData();
+      formData.append("files", slip);
+
+      const res = await fetch("http://localhost:3000/check-slips", {
+        method: "POST",
+        body: formData,
+      });
+        
+        const data = await res.json();
+        setslipOkData(data.data);
+        console.log("data", slipOkData);
+        if (slipOkData.amount == totalAmount && slipOkData.success == true){
+          Correct();
+          onConfirm(slip);
+        } else{
+          InCorrect("ข้อมูลชำระเงินไม่ถูกต้อง");
+        }
+
+      
+    }catch(error){
+      console.log("error test",error)
+    }
+  };
+
+  const Correct = () => {
+    Swal.fire({
+        title: "สำเร็จ",
+        text: `ชำระเงินจำนวน ${slipOkData.amount} บาท`,
+        icon: "success"
+      });
+  };
+
+  const InCorrect = (ErrorText: string) => {
+    Swal.fire({
+        title: "ผิดพลาด",
+        text: ErrorText,
+        icon: "error"
+      });
+  };
+
+  const Loading = () => {
+    Swal.fire({
+        title: "กรุณารอสักครู่",
+        text: `กำลังตรวจสอบการชำระเงิน`,
+      });
   };
 
   const isValid = slip !== null;
@@ -41,7 +95,7 @@ export function Payment({ totalAmount, onConfirm, onCancel }: PaymentProps) {
           <div className="flex justify-center mb-6">
             <div className="w-64 h-64 bg-gray-100 rounded-2xl flex items-center justify-center border-2" style={{ borderColor: '#62C4FF' }}>
               <div className="text-center">
-                <QrCode className="w-32 h-32 mx-auto mb-2" style={{ color: '#62C4FF' }} />
+                <img src={`https://promptpay.io/0637503711/${totalAmount}.png`}></img>
                 <p className="text-sm text-gray-600">QR Code สำหรับชำระเงิน</p>
               </div>
             </div>
@@ -66,7 +120,7 @@ export function Payment({ totalAmount, onConfirm, onCancel }: PaymentProps) {
               <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border-2" style={{ borderColor: '#62C4FF' }}>
                 <div className="flex items-center gap-3">
                   <Upload className="w-5 h-5" style={{ color: '#62C4FF' }} />
-                  <span className="text-sm text-gray-700">{slip.name}</span>
+                  <img src={slip && URL.createObjectURL(slip)} alt="slip"></img>
                 </div>
                 <button
                   onClick={() => setSlip(null)}
@@ -115,4 +169,5 @@ export function Payment({ totalAmount, onConfirm, onCancel }: PaymentProps) {
       </div>
     </div>
   );
+  
 }

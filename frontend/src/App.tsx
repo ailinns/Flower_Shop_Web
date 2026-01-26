@@ -146,6 +146,10 @@ export default function App() {
     setStep('payment');
   };
 
+  const handleToDelivery = () => {
+    setStep('delivery');
+  }
+
   const [paymentSlipName, setPaymentSlipName] = useState<string | null>(null);
 
   const handlePaymentConfirm = (slip: File | null) => {
@@ -281,7 +285,7 @@ export default function App() {
         <Cart
           items={cart}
           onAddMore={handleAddMoreItems}
-          onCheckout={handleProceedToPayment}
+          onCheckout={handleToDelivery}
           onRemove={handleRemoveFromCart}
         />
       )}
@@ -295,7 +299,7 @@ export default function App() {
       {step === 'delivery' && (
         <DeliveryInfo
           orderId={`ORD${Date.now().toString().slice(-8)}`}
-          onConfirm={handleDeliveryConfirm}
+          onConfirm={handleProceedToPayment}
         />
       )}
       {step === 'complete' && orderData && (
