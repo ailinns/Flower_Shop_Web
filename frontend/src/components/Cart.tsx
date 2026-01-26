@@ -131,7 +131,7 @@ export function Cart({ items, onAddMore, onCheckout, onRemove }: CartProps) {
                 className="py-4 rounded-xl text-white"
                 style={{ backgroundColor: '#62C4FF' }}
               >
-                ชำระเงิน
+                ดำเนินการต่อ
               </button>
             </div>
           </>

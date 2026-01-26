@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { type FlowerType as DbFlowerType } from './api/flower.api';
 import { BouquetStyleSelection } from './components/BouquetStyleSelection';
 import { BranchSelection } from './components/BranchSelection';
+import { Home } from './components/Home';
 import { Cart } from './components/Cart';
 import { DeliveryInfo } from './components/DeliveryInfo';
 import { FlowerTypeSelection } from './components/FlowerTypeSelection';
@@ -42,6 +43,7 @@ export interface OrderData {
 }
 
 type Step = 
+    'home'
   | 'branch' 
   | 'productType' 
   | 'bouquetStyle' 
@@ -54,7 +56,7 @@ type Step =
   | 'tracking';
 
 export default function App() {
-  const [step, setStep] = useState<Step>('branch');
+  const [step, setStep] = useState<Step>('home');
   const [branchId, setBranchId] = useState<number | null>(null);
   const [productType, setProductType] = useState<ProductType>('bouquet');
   const [bouquetStyle, setBouquetStyle] = useState<BouquetStyle>('round');
@@ -67,8 +69,8 @@ export default function App() {
   const [orderData, setOrderData] = useState<OrderData | null>(null);
   const [savedOrders, setSavedOrders] = useState<OrderData[]>([]);
 
-  const handleBranchSelect = (selectedBranchId: number) => {
-    setBranchId(selectedBranchId);
+   
+  const handleProduct = () => {
     setStep('productType');
   };
 
@@ -150,19 +152,26 @@ export default function App() {
     setStep('delivery');
   }
 
-  const [paymentSlipName, setPaymentSlipName] = useState<string | null>(null);
-
-  const handlePaymentConfirm = (slip: File | null) => {
-    // store slip filename (we don't upload file in this simple flow)
-    const name = slip ? slip.name : `slip_${Date.now()}_${Math.floor(Math.random()*900000+100000)}.jpg`;
-    setPaymentSlipName(name);
-    setStep('delivery');
-  };
 
   // Determine API base (use VITE env if provided, otherwise use localhost:3000 for dev)
   const API_BASE = (import.meta as any).env?.VITE_API_BASE || (window.location.hostname === 'localhost' ? 'http://localhost:3000' : '');
+  
+  const [Sendername, setSendername] = useState<string | null>(null);
+  const [Senderaddress, setSenderaddress] = useState<string | null>(null);
+  const [Senderphone, setSenderphone] = useState<string | null>(null);
+  const [Deliverytype, setDeliverytype] = useState<'pickup' | 'delivery'>('delivery');
+  const [Cardmessage, setCardmessage] = useState<string | undefined>(undefined);
 
-  const handleDeliveryConfirm = (name: string, address: string, phone: string, deliveryType: 'pickup' | 'delivery', cardMessage?: string) => {
+  const handleDeliveryConfirm = (name: string, address: string, phone: string, deliveryType: 'pickup' | 'delivery',selectedBranchId: number, cardMessage?: string) => {
+    setSendername(name);
+    setSenderaddress(address);
+    setSenderphone(phone);
+    setDeliverytype(deliveryType);
+    setCardmessage(cardMessage);
+    setBranchId(selectedBranchId);
+    setStep('payment');
+  }
+  const AssigeToDatabase = (slipOkData: JSON) => {
     (async () => {
       try {
         // validate cart items have productId (database product_id required)
@@ -173,13 +182,13 @@ export default function App() {
 
         const payload: any = {
           branch_id: branchId || null,
-          pickup: deliveryType === 'pickup',
+          pickup: Deliverytype === 'pickup',
           promotion_id: null,
-          customer: { name, phone },
-          receiver: { name, phone, address: deliveryType === 'pickup' ? 'ที่ร้าน' : address },
-          customer_note: cardMessage || null,
+          customer: { name: Sendername, phone: Senderphone },
+          receiver: { name: Sendername, phone: Senderphone, address: Deliverytype === 'pickup' ? 'ที่ร้าน' : Senderaddress },
+          customer_note: Cardmessage || null,
           total_amount: cart.reduce((sum, item) => sum + item.price, 0),
-          payment: paymentSlipName ? { slip_image: paymentSlipName } : undefined,
+          payment: slipOkData,
           items: cart.map((it) => ({
             product_id: (it as any).productId,
             qty: 1,
@@ -206,17 +215,16 @@ export default function App() {
           throw new Error(`Server returned non-JSON response (status ${resp.status}): ${txt.slice(0,200)}`);
         }
         if (!resp.ok) throw new Error(data?.detail || data?.error || 'Failed to create order');
-
         const order: OrderData = {
           orderId: data.order_code || `ORD${Date.now().toString().slice(-8)}`,
           items: cart,
           totalAmount: payload.total_amount,
-          customerName: name,
-          address,
-          phone,
+          customerName: Sendername,
+          address: Senderaddress,
+          phone: Senderphone,
           branch: branchId,
-          deliveryType,
-          cardMessage,
+          deliveryType: Deliverytype,
+          cardMessage: Cardmessage,
         };
         setOrderData(order);
         setSavedOrders([...savedOrders, order]);
@@ -239,7 +247,7 @@ export default function App() {
     setSelectedFlowerTypes([]);
     setCart([]);
     setOrderData(null);
-    setStep('branch');
+    setStep('home');
   };
 
   const handleRemoveFromCart = (itemId: string) => {
@@ -252,6 +260,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-white">
+      {step === 'home' && (
+        <Home
+          onNext={handleProduct}
+          onCheckOrder={() => setStep('tracking')}
+        />
+      )}
       {step === 'branch' && (
         <BranchSelection 
           onNext={handleBranchSelect}
@@ -292,14 +306,20 @@ export default function App() {
       {step === 'payment' && (
         <Payment
           totalAmount={cart.reduce((sum, item) => sum + item.price, 0)}
-          onConfirm={handlePaymentConfirm}
+          onConfirm={(slipFile) => {
+      // slipFile คือ File object ที่ได้จาก Payment
+      console.log('Payment slip:', slipFile);
+      // ส่ง slip ไปยัง database
+      AssigeToDatabase(slipFile);
+    }}
           onCancel={() => setStep('cart')}
         />
       )}
       {step === 'delivery' && (
         <DeliveryInfo
+
           orderId={`ORD${Date.now().toString().slice(-8)}`}
-          onConfirm={handleProceedToPayment}
+          onConfirm={handleDeliveryConfirm}
         />
       )}
       {step === 'complete' && orderData && (

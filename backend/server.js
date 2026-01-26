@@ -116,6 +116,7 @@ app.get('/api/flower-types', async (_req, res) => {
 // Create order (transactional)
 app.post('/api/orders', async (req, res) => {
   const payload = req.body || {};
+  console.log("payload", payload);
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -146,17 +147,17 @@ app.post('/api/orders', async (req, res) => {
       if (found.length > 0) customerId = found[0].customer_id;
     }
     if (!customerId) {
-      const [insCust] = await conn.query('INSERT INTO customer (customer_name, phone) VALUES (?, ?)', [customer.name || null, customer.phone || null]);
+      const [insCust] = await conn.query('INSERT INTO customer (customer_name, phone, points) VALUES (?, ?, ?)', [customer.name || null, customer.phone || null, (payload.total_amount/100)]);
       customerId = insCust.insertId;
     }
 
     // province for address
-    let provinceId = null;
-    if (payload.receiver && payload.receiver.province_id) provinceId = payload.receiver.province_id;
-    else {
-      const [p] = await conn.query('SELECT province_id FROM province ORDER BY RAND() LIMIT 1');
-      provinceId = p.length ? p[0].province_id : null;
-    }
+    // let provinceId = null;
+    // if (payload.receiver && payload.receiver.province_id) provinceId = payload.receiver.province_id;
+    // else {
+       const [p] = await conn.query('SELECT province_id FROM province WHERE province_id = ?', [payload.branch_id]);
+       provinceId = p.length ? p[0].province_id : null;
+    // }
 
     // Insert customer_address
     const receiver = payload.receiver || {};
@@ -168,15 +169,16 @@ app.post('/api/orders', async (req, res) => {
     // Insert order
     const [insOrder] = await conn.query(
       'INSERT INTO `order` (branch_id, customer_id, promotion_id, customer_note, order_code, order_status, total_amount, florist_photo_url, rider_photo_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [branchId, customerId, payload.promotion_id || null, payload.customer_note || null, orderCode, 'PENDING', payload.total_amount || 0, null, null]
+      [branchId, customerId, payload.promotion_id || null, payload.customer_note || null, orderCode, 'received', payload.total_amount || 0, null, null]
     );
     const orderId = insOrder.insertId;
-
+    
     // Insert payment if provided
     if (payload.payment) {
       // use provided slip_image or generate a random placeholder filename
-      const slipImage = payload.payment.slip_image || `slip_${Date.now()}_${Math.floor(Math.random()*900000+100000)}.jpg`;
-      await conn.query('INSERT INTO payment (order_id, slip_image, paid_at) VALUES (?, ?, NOW())', [orderId, slipImage]);
+      const slipImage = payload.payment;
+      
+      await conn.query('INSERT INTO payment (order_id, trans_ref, sender_name, bank, amount, slip_time, raw_response, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())', [orderId,slipImage.transRef, slipImage.sender.displayName, slipImage.sender.bank, slipImage.amount, slipImage.transTimestamp, JSON.stringify(slipImage)]);
     }
 
     // Insert shopping_cart items and customizations
@@ -199,7 +201,7 @@ app.post('/api/orders', async (req, res) => {
     }
 
     await conn.commit();
-    res.json({ success: true, order_id: orderId, order_code: orderCode });
+    res.json({ order_id: orderId, order_code: orderCode });
   } catch (err) {
     await conn.rollback().catch(() => {});
     console.error('❌ Create Order Error:', err.message);

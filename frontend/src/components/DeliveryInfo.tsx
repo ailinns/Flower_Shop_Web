@@ -1,27 +1,88 @@
-import { useState } from 'react';
+import { useState,useEffect } from 'react';
 import { MapPin, Home, Truck, MessageSquare } from 'lucide-react';
+import { Branch, getBranches, getRegions, type Region } from "../api/branch.api";
+import Swal from 'sweetalert2';
 
 interface DeliveryInfoProps {
   orderId: string;
-  onConfirm: (name: string, address: string, phone: string, deliveryType: 'pickup' | 'delivery', cardMessage?: string) => void;
+  onConfirm: (name: string, address: string, phone: string, deliveryType: 'pickup' | 'delivery', selectedBranchId: number, cardMessage?: string) => void;
 }
 
-export function DeliveryInfo({ orderId, onConfirm }: DeliveryInfoProps) {
+export function DeliveryInfo({ orderId, onConfirm}: DeliveryInfoProps) {
   const [deliveryType, setDeliveryType] = useState<'pickup' | 'delivery' | null>(null);
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
   const [cardMessage, setCardMessage] = useState('');
 
+  const [selectedRegionId, setSelectedRegionId] = useState<number | "">("");
+    const [selectedBranchId, setSelectedBranchId] = useState<number | "">("");
+    const [regions, setRegions] = useState<Region[]>([]);
+    const [branches, setBranches] = useState<Branch[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [branchLoading, setBranchLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+  
+  // โหลดภาคเมื่อ component mount
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await getRegions();
+        if (mounted) setRegions(data);
+      } catch (e: any) {
+        if (mounted) setError(e?.message ?? "เกิดข้อผิดพลาด");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // โหลดสาขาเมื่อเลือกภาค
+  useEffect(() => {
+    if (selectedRegionId === "") {
+      setBranches([]);
+      setSelectedBranchId("");
+      return;
+    }
+
+    let mounted = true;
+
+    (async () => {
+      try {
+        setBranchLoading(true);
+        setError(null);
+        const data = await getBranches(selectedRegionId as number);
+        if (mounted) setBranches(data);
+      } catch (e: any) {
+        if (mounted) setError(e?.message ?? "เกิดข้อผิดพลาด");
+      } finally {
+        if (mounted) setBranchLoading(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [selectedRegionId]);
+
+
   const handleConfirm = () => {
-    if (deliveryType === 'pickup' && name && phone) {
-      onConfirm(name, '', phone, deliveryType, cardMessage);
-    } else if (deliveryType === 'delivery' && name && address && phone) {
-      onConfirm(name, address, phone, deliveryType, cardMessage);
+    if (deliveryType === 'pickup' && name && phone && selectedBranchId) {
+      onConfirm(name, '', phone, deliveryType,Number(selectedBranchId) , cardMessage);
+    } else if (deliveryType === 'delivery' && name && address && phone && selectedBranchId) {
+      onConfirm(name, address, phone, deliveryType, Number(selectedBranchId), cardMessage);
     }
   };
 
-  const isValid = deliveryType && name && phone && phone.length >= 9 && 
+  const isValid = deliveryType && name && phone && Number(selectedBranchId) && phone.length >= 9 && 
     (deliveryType === 'pickup' || (deliveryType === 'delivery' && address));
 
   return (
@@ -76,8 +137,79 @@ export function DeliveryInfo({ orderId, onConfirm }: DeliveryInfoProps) {
           </div>
 
           {/* Customer Information (shown only when delivery type is selected) */}
+          
           {deliveryType && (
+            
             <div className="space-y-6 border-t pt-6">
+
+
+
+
+               {/* เลือกภาค */}
+        <div className="mb-6">
+          <label className="block mb-3 text-gray-700">เลือกภาค <span className="text-red-500">*</span></label>
+
+          <select
+            value={selectedRegionId}
+            onChange={(e) => setSelectedRegionId(e.target.value ? Number(e.target.value) : "")}
+            disabled={loading}
+            className="w-full px-4 py-4 rounded-lg border-2 outline-none transition-all disabled:opacity-60"
+            style={{
+              borderColor: selectedRegionId ? "#AEE6FF" : "#e5e7eb",
+              backgroundColor: "white",
+            }}
+          >
+            <option value="">
+              {loading ? "กำลังโหลด..." : "-- กรุณาเลือกภาค --"}
+            </option>
+
+            {regions.map((r) => (
+              <option key={r.region_id} value={r.region_id}>
+                {r.region_name}
+              </option>
+            ))}
+          </select>
+
+          {error && (
+            <p className="mt-2 text-sm text-red-600">
+              {error}
+            </p>
+          )}
+        </div>
+        
+
+
+        {/* เลือกสาขา (แสดงเฉพาะเมื่อเลือกภาค) */}
+        {selectedRegionId && (
+          <div className="mb-6">
+            <label className="block mb-3 text-gray-700">เลือกสาขา <span className="text-red-500">*</span></label>
+
+            <select
+              value={selectedBranchId}
+              onChange={(e) => setSelectedBranchId(e.target.value ? Number(e.target.value) : "")}
+              disabled={branchLoading || branches.length === 0}
+              className="w-full px-4 py-4 rounded-lg border-2 outline-none transition-all disabled:opacity-60"
+              style={{
+                borderColor: selectedBranchId ? "#AEE6FF" : "#e5e7eb",
+                backgroundColor: "white",
+              }}
+            >
+              <option value="">
+                {branchLoading ? "กำลังโหลดสาขา..." : branches.length === 0 ? "ไม่มีสาขาในภาคนี้" : "-- กรุณาเลือกสาขา --"}
+              </option>
+
+              {branches.map((b) => (
+                <option key={b.branch_id} value={b.branch_id}>
+                  {b.branch_name} {b.province_name ? `(${b.province_name})` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+
+
+
               {/* Name Input */}
               <div>
                 <label className="block mb-2 text-gray-700">
