@@ -1,14 +1,17 @@
 import { useState,useEffect } from 'react';
 import { MapPin, Home, Truck, MessageSquare } from 'lucide-react';
 import { Branch, getBranches, getRegions, type Region } from "../api/branch.api";
+import { CartItem } from '../App';
 import Swal from 'sweetalert2';
+import { json } from 'express/lib/response';
 
 interface DeliveryInfoProps {
+  cartItems: CartItem[];
   orderId: string;
   onConfirm: (name: string, address: string, phone: string, deliveryType: 'pickup' | 'delivery', selectedBranchId: number, cardMessage?: string) => void;
 }
 
-export function DeliveryInfo({ orderId, onConfirm}: DeliveryInfoProps) {
+export function DeliveryInfo({cartItems, orderId, onConfirm}: DeliveryInfoProps) {
   const [deliveryType, setDeliveryType] = useState<'pickup' | 'delivery' | null>(null);
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
@@ -74,7 +77,38 @@ export function DeliveryInfo({ orderId, onConfirm}: DeliveryInfoProps) {
   }, [selectedRegionId]);
 
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
+    const check = await handleCheckStock(cartItems,selectedBranchId);
+    console.log("check stock result",check);
+    // if (check === false) {
+    //   Swal.fire({
+    //     title: "ขออภัย สินค้าหมด",
+    //     text: "ต้องการให้ระบบค้นหาสินค้าในสาขาอื่นหรือไม่?",
+    //     icon: "warning",
+    //     showCancelButton: true,
+    //     confirmButtonColor: "#3085d6",
+    //     cancelButtonColor: "#d33",
+    //     confirmButtonText: "ค้นหาสินค้าในสาขาอื่น",
+    //     cancelButtonText: "ยกเลิก"
+    //   }).then((result) => {
+    //     if (result.isConfirmed) {
+    //       Swal.fire({
+    //         title: "พบสินค้าในสาขาอื่น",
+    //         text: "มีสินค้าในสาขาเชียงใหม่",
+    //         icon: "success"
+    //       });
+    //   }
+    // });
+    //   return;
+    // }
+    if (check === false){
+      Swal.fire({
+      title: "ขออภัย สินค้าหมด",
+      text: "กรุณาเปลี่ยนสาขาในการรับสินค้า",
+      icon: "error"
+});
+return;
+    }
     if (deliveryType === 'pickup' && name && phone && selectedBranchId) {
       onConfirm(name, '', phone, deliveryType,Number(selectedBranchId) , cardMessage);
     } else if (deliveryType === 'delivery' && name && address && phone && selectedBranchId) {
@@ -82,6 +116,17 @@ export function DeliveryInfo({ orderId, onConfirm}: DeliveryInfoProps) {
     }
   };
 
+  const handleCheckStock = async (cart: CartItem[],selectedBranchId: number): Promise<boolean> => {
+  const res = await fetch("http://localhost:3000/check-stocks", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ cart,selectedBranchId }),
+  });
+  const data = await res.json();
+  return data.is_available; // true / false
+}
   const isValid = deliveryType && name && phone && Number(selectedBranchId) && phone.length >= 9 && 
     (deliveryType === 'pickup' || (deliveryType === 'delivery' && address));
 

@@ -7,6 +7,7 @@ const PORT = process.env.PORT || 3000;
 
 
 const multer = require("multer");
+const { is } = require('express/lib/request');
 
 const upload = multer(); // memory storage
 
@@ -293,7 +294,7 @@ app.post("/api/orders/search", async (req, res) => {
   }
 });
 
-app.post("/check-text", async (req, res) => {
+app.post("/check-dupslip", async (req, res) => {
   try {
     const { text } = req.body;
 
@@ -309,6 +310,33 @@ app.post("/check-text", async (req, res) => {
       // ยังไม่มี
       return res.json({ exists: true });
     }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/check-stocks", async (req, res) => {
+  try {
+    const is_available = true;
+    const orders = req.body;
+    for (const item of orders.cart) {
+      //console.log(`สินค้าชิ้นที่ ${index + 1}:`, item.productId,`สาขาที่ :`, orders.selectedBranchId);
+      const [rows] = await pool.query(
+        "SELECT bp.stock_qty FROM branch_product bp WHERE product_id = ? AND branch_id = ?",
+        [item.productId, orders.selectedBranchId]
+      );
+      if (rows[0].stock_qty <= 0) {
+        is_available = false;
+      }
+      
+      // console.log(`ผลลัพธ์สินค้าคงเหลือที่:`, rows[0].stock_qty);
+      // if (rows[0].stock_qty <= 0) {
+      //   is_available = false;
+      //   break
+      // }
+      };
+    return res.json({ is_available : is_available });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Server error" });

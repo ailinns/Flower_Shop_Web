@@ -317,7 +317,7 @@ export default function App() {
       )}
       {step === 'delivery' && (
         <DeliveryInfo
-
+          cartItems={cart}
           orderId={`ORD${Date.now().toString().slice(-8)}`}
           onConfirm={handleDeliveryConfirm}
         />

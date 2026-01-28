@@ -11,7 +11,6 @@ interface PaymentProps {
 export function Payment({ totalAmount, onConfirm, onCancel }: PaymentProps) {
   const [slip, setSlip] = useState<File | null>(null);
   const [slipOkData, setslipOkData] = useState([]);
-  const [transref, setTransref] = useState('');
 
   const handleSlipUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -20,7 +19,6 @@ export function Payment({ totalAmount, onConfirm, onCancel }: PaymentProps) {
     }
   };
   console.log("selected",slip)
-  console.log("transref",transref)
   const handleConfirm = () => {
     if (slip) {
       slipSubmit();
@@ -28,7 +26,7 @@ export function Payment({ totalAmount, onConfirm, onCancel }: PaymentProps) {
   };
 
   const checkText = async (text: string): Promise<boolean> => {
-  const res = await fetch("http://localhost:3000/check-text", {
+  const res = await fetch("http://localhost:3000/check-dupslip", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -54,7 +52,6 @@ export function Payment({ totalAmount, onConfirm, onCancel }: PaymentProps) {
         
         const data = await res.json();
         setslipOkData(data.data);
-        setTransref(data.data.transRef)
         console.log("data", slipOkData);
         const isAvailable = await checkText(data.data.transRef);
         if (data.data.amount == totalAmount && data.data.success == true && isAvailable == true){
