@@ -1,9 +1,8 @@
+import { CheckCircle, Clock, Home, MapPin, Package, Phone, Search, Truck, User } from 'lucide-react';
 import { useState } from 'react';
-import { OrderData } from '../App';
-import { Search, Package, Truck, CheckCircle, MapPin, Phone, User, Home, Clock } from 'lucide-react';
-import { ImageWithFallback } from './figma/ImageWithFallback';
 import Swal from 'sweetalert2';
-import mysql from "mysql2/promise";
+import { OrderData } from '../App';
+import { ImageWithFallback } from './figma/ImageWithFallback';
 
 interface OrderTrackingProps {
   savedOrders: OrderData[];
@@ -20,7 +19,7 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
   const handleSearch = async () => {
     const data = await searchOrder(searchOrderId);
     console.log("search data", data);
-    if (data.message !== "Server error") {
+    if (data.message === "พบคำสั่งซื้อ") {
       setCurrentOrder(data);
       console.log("currentOrder", data);
       setOrderStatus(data.order.order_status as OrderStatus);

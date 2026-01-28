@@ -116,7 +116,6 @@ app.get('/api/flower-types', async (_req, res) => {
 // Create order (transactional)
 app.post('/api/orders', async (req, res) => {
   const payload = req.body || {};
-  console.log("payload", payload);
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -178,13 +177,14 @@ app.post('/api/orders', async (req, res) => {
       // use provided slip_image or generate a random placeholder filename
       const slipImage = payload.payment;
       
-      await conn.query('INSERT INTO payment (order_id, trans_ref, sender_name, bank, amount, slip_time, raw_response, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())', [orderId,slipImage.transRef, slipImage.sender.displayName, slipImage.sender.bank, slipImage.amount, slipImage.transTimestamp, JSON.stringify(slipImage)]);
+      await conn.query('INSERT INTO payment (order_id, trans_ref, sender_name, bank, amount, slip_time, raw_response, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())', [orderId,slipImage.transRef, slipImage.sender.displayName, slipImage.sendingBank, slipImage.amount, slipImage.transTimestamp, JSON.stringify(slipImage)]);
     }
 
     // Insert shopping_cart items and customizations
     if (Array.isArray(payload.items)) {
       for (const it of payload.items) {
         const [insCart] = await conn.query('INSERT INTO shopping_cart (order_id, product_id, qty, price_total) VALUES (?, ?, ?, ?)', [orderId, it.product_id, it.qty || 1, it.price_total || 0]);
+        await conn.query('UPDATE branch_product SET stock_qty = stock_qty - 1, is_available = CASE WHEN stock_qty - 1 <= 0 THEN 0 ELSE 1 END WHERE branch_id = ? AND product_id = ?', [branchId, it.product_id]);
         const shoppingCartId = insCart.insertId;
         if (it.bouquet_style_id) {
           await conn.query('INSERT INTO bouquet_customization (shopping_cart_id, bouquet_style_id) VALUES (?, ?)', [shoppingCartId, it.bouquet_style_id]);
@@ -216,10 +216,10 @@ app.post("/check-slips", upload.single("files"), async (req, res) => {
     const form = new FormData();
     form.append("files", new Blob([req.file.buffer]), req.file.originalname);
 
-    const r = await fetch("https://api.slipok.com/api/line/apikey/59785", {
+    const r = await fetch("https://api.slipok.com/api/line/apikey/51649", {
       method: "POST",
       headers: {
-        "x-authorization": "SLIPOKXF2FXLL",
+        "x-authorization": "SLIPOKVLZ8JSO",
       },
       body: form,
     });
@@ -235,7 +235,6 @@ app.post("/api/orders/search", async (req, res) => {
   
   try {
     const { order_code } = req.body;
-    console.log("yes2", order_code);
     if (!order_code || typeof order_code !== "string") {
       return res.status(400).json({ message: "order_code ไม่ถูกต้อง" });
     }
@@ -278,7 +277,6 @@ app.post("/api/orders/search", async (req, res) => {
   `,
       [rows[0].order_id]
     );
-    console.log("carts", carts);
 
     const list = rows;
     if (list.length === 0) {
@@ -292,6 +290,28 @@ app.post("/api/orders/search", async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ message: "Server error" });
+  }
+});
+
+app.post("/check-text", async (req, res) => {
+  try {
+    const { text } = req.body;
+
+    const [rows] = await pool.query(
+      "SELECT 1 FROM payment WHERE trans_ref = ? LIMIT 1",
+      [text]
+    );
+
+    if (rows.length > 0) {
+      // มีข้อมูลแล้ว
+      return res.json({ exists: false });
+    } else {
+      // ยังไม่มี
+      return res.json({ exists: true });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Server error" });
   }
 });
 

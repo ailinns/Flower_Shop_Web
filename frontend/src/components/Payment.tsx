@@ -27,6 +27,19 @@ export function Payment({ totalAmount, onConfirm, onCancel }: PaymentProps) {
     }
   };
 
+  const checkText = async (text: string): Promise<boolean> => {
+  const res = await fetch("http://localhost:3000/check-text", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text }),
+  });
+
+    const data = await res.json();
+    return data.exists; // true / false
+};
+
   const slipSubmit = async () => {
     Loading();
     try{
@@ -43,8 +56,9 @@ export function Payment({ totalAmount, onConfirm, onCancel }: PaymentProps) {
         setslipOkData(data.data);
         setTransref(data.data.transRef)
         console.log("data", slipOkData);
-        if (data.data.amount == totalAmount && data.data.success == true){
-          Correct();
+        const isAvailable = await checkText(data.data.transRef);
+        if (data.data.amount == totalAmount && data.data.success == true && isAvailable == true){
+          Correct(data.data.amount);
           onConfirm(data.data);
         } else{
           InCorrect("ข้อมูลชำระเงินไม่ถูกต้อง");
@@ -56,10 +70,10 @@ export function Payment({ totalAmount, onConfirm, onCancel }: PaymentProps) {
     }
   };
 
-  const Correct = () => {
+  const Correct = (amount: number) => {
     Swal.fire({
         title: "สำเร็จ",
-        text: `ชำระเงินจำนวน ${slipOkData.amount} บาท`,
+        text: `ชำระเงินจำนวน ${amount} บาท`,
         icon: "success"
       });
   };
