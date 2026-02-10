@@ -12,6 +12,11 @@ export type VaseColor = {
   [k: string]: any;
 };
 
+export type BouquetStyle = {
+  bouquet_style_id: number;
+  bouquet_style_name: string;
+};
+
 export async function getVases(productTypeId?: number): Promise<Vase[]> {
   const url = productTypeId ? `http://localhost:3000/api/vases?product_type_id=${productTypeId}` : `http://localhost:3000/api/vases`;
   const res = await fetch(url);
@@ -22,5 +27,11 @@ export async function getVases(productTypeId?: number): Promise<Vase[]> {
 export async function getVaseColors(): Promise<VaseColor[]> {
   const res = await fetch(`http://localhost:3000/api/vase-colors`);
   if (!res.ok) throw new Error('โหลดสีแจกันไม่สำเร็จ');
+  return res.json();
+}
+
+export async function getBouquetStyles(): Promise<BouquetStyle[]> {
+  const res = await fetch(`http://localhost:3000/api/bouquet-styles`);
+  if (!res.ok) throw new Error('โหลดรูปแบบช่อไม่สำเร็จ');
   return res.json();
 }

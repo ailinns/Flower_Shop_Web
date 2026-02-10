@@ -190,8 +190,8 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
                     <div key={item.shopping_cart_id} className="flex gap-3 p-3 bg-gray-50 rounded-xl">
                       <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
                         <ImageWithFallback
-                          src=""
-                          alt="สินค้า"
+                          src={item.product_img || undefined}
+                          alt={item.product_name || 'สินค้า'}
                           className="w-full h-full object-cover"
                         />
                       </div>
@@ -200,9 +200,19 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
                           {item.product_type_name} ({item.product_name})
                         </p>
                         <p className="text-xs text-gray-600">
-                          ดอกไม้ : {item.flowers}
-                          <br></br>
-                          สี : {item.vase_color_name}
+                          {item.product_type_name === 'แจกัน' ? (
+                            <>
+                              ดอกไม้ : {item.flowers}
+                              <br />
+                              สี : {item.vase_color_name || 'ไม่ระบุ'}
+                            </>
+                          ) : (
+                            <>
+                              แบบช่อ : {item.bouquet_style_name || 'ไม่ระบุ'}
+                              <br />
+                              ดอกไม้ : {item.flowers}
+                            </>
+                          )}
                         </p>
                       </div>
                       <div className="text-gray-900 text-sm">
