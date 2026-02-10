@@ -11,11 +11,14 @@ import { OrderTracking } from './components/OrderTracking';
 import { Payment } from './components/Payment';
 import { PriceColorSelection } from './components/PriceColorSelection';
 import { ProductTypeSelection } from './components/ProductTypeSelection';
+import { SnowEffect } from './components/SnowEffect';
 
 export type ProductType = 'bouquet' | 'vase';
 export type BouquetStyle = 'round' | 'long';
 export type FlowerColor = string;
 export type FlowerType = 'rose' | 'lily' | 'tulip' | 'orchid' | 'sunflower' | 'samadihae';
+
+
 
 export interface CartItem {
   id: string;
@@ -179,7 +182,8 @@ export default function App() {
         if (missingProduct) {
           throw new Error('พบสินค้าที่ยังไม่มี product_id จากการเลือก โปรดเลือกรายการใหม่อีกครั้ง');
         }
-
+        console.log("Submitting",slipOkData)
+        console.log("Submitting method",slipOkData.method)
         const payload: any = {
           branch_id: branchId || null,
           pickup: Deliverytype === 'pickup',
@@ -188,7 +192,8 @@ export default function App() {
           receiver: { name: Sendername, phone: Senderphone, address: Deliverytype === 'pickup' ? 'ที่ร้าน' : Senderaddress },
           customer_note: Cardmessage || null,
           total_amount: cart.reduce((sum, item) => sum + item.price, 0),
-          payment: slipOkData,
+          payment: slipOkData.data,
+          method: slipOkData.method ,
           items: cart.map((it) => ({
             product_id: (it as any).productId,
             qty: 1,
@@ -258,8 +263,13 @@ export default function App() {
     setStep('tracking');
   };
 
+  function handleBranchSelect(branchId: number): void {
+    throw new Error('Function not implemented.');
+  }
+
   return (
     <div className="min-h-screen bg-white">
+      <SnowEffect />
       {step === 'home' && (
         <Home
           onNext={handleProduct}
@@ -309,8 +319,10 @@ export default function App() {
           onConfirm={(slipFile) => {
       // slipFile คือ File object ที่ได้จาก Payment
       console.log('Payment slip:', slipFile);
-      // ส่ง slip ไปยัง database
+      console.log('method',slipFile.method);
+      console.log('data qr',slipFile.data);
       AssigeToDatabase(slipFile);
+      
     }}
           onCancel={() => setStep('cart')}
         />

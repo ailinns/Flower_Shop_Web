@@ -177,8 +177,17 @@ app.post('/api/orders', async (req, res) => {
     if (payload.payment) {
       // use provided slip_image or generate a random placeholder filename
       const slipImage = payload.payment;
+      const slipType = payload.method;
+      if (slipType === 'cash') {
+        await conn.query('INSERT INTO payment (payment_method_id,order_id) VALUES (?,?)', [1, orderId]);
+      } else if (slipType === 'credit') {
+         const [insPayment] = await conn.query('INSERT INTO payment (payment_method_id,order_id) VALUES (?,?)', [3, orderId]);
+         await conn.query('INSERT INTO payment_card_evidence (payment_id, trans_ref, card_last4, card_brand, created_at) VALUES (?, ?, ?, ?, NOW())', [insPayment.insertId, "23asd", slipImage, "Visa"]);
+      } else {
+        const [insPayment] = await conn.query('INSERT INTO payment (payment_method_id,order_id) VALUES (?,?)', [2, orderId]);
+        await conn.query('INSERT INTO payment_evidence (payment_id, trans_ref, sender_name, bank, slip_time, raw_response, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())', [insPayment.insertId, slipImage.transRef, slipImage.sender.displayName, slipImage.sendingBank, slipImage.transTimestamp, JSON.stringify(slipImage)]);
+      }
       
-      await conn.query('INSERT INTO payment (order_id, trans_ref, sender_name, bank, amount, slip_time, raw_response, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())', [orderId,slipImage.transRef, slipImage.sender.displayName, slipImage.sendingBank, slipImage.amount, slipImage.transTimestamp, JSON.stringify(slipImage)]);
     }
 
     // Insert shopping_cart items and customizations
@@ -299,7 +308,7 @@ app.post("/check-dupslip", async (req, res) => {
     const { text } = req.body;
 
     const [rows] = await pool.query(
-      "SELECT 1 FROM payment WHERE trans_ref = ? LIMIT 1",
+      "SELECT 1 FROM payment_evidence WHERE trans_ref = ? LIMIT 1",
       [text]
     );
 
