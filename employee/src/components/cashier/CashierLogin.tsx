@@ -25,6 +25,8 @@ export default function CashierLogin({ onLogin }: CashierLoginProps) {
         setError(data.message || 'เข้าสู่ระบบไม่สำเร็จ');
         return;
       }
+      // Store employee data in localStorage
+      localStorage.setItem('cashier_employee', JSON.stringify(data.employee));
       onLogin();
       navigate('/cashier/dashboard');
     } catch (err) {

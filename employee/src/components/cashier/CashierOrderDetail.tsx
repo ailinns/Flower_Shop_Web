@@ -54,23 +54,42 @@ export default function CashierOrderDetail() {
   const handleApprove = () => {
     if (!order) return;
 
-    // Update order status in localStorage
-    const savedOrders = localStorage.getItem('cashier_orders');
-    if (savedOrders) {
-      const orders = JSON.parse(savedOrders);
-      const updatedOrders = orders.map((o: Order) => 
-        o.id === order.id ? { ...o, status: 'verified' } : o
-      );
-      localStorage.setItem('cashier_orders', JSON.stringify(updatedOrders));
-      
-      toast.success('อนุมัติคำสั่งซื้อสำเร็จ', {
-        description: `คำสั่งซื้อ ${order.id} ได้รับการอนุมัติแล้ว`
-      });
-      
-      setTimeout(() => {
-        navigate('/cashier/dashboard');
-      }, 1000);
-    }
+    // Call backend to update order_status to 'preparing'
+    (async () => {
+      try {
+        const res = await fetch(`http://localhost:3000/api/order/${order.id}/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'preparing' })
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.message || 'Failed to update order status');
+        }
+
+        // Update localStorage and local state
+        const savedOrders = localStorage.getItem('cashier_orders');
+        if (savedOrders) {
+          const orders = JSON.parse(savedOrders);
+          const updatedOrders = orders.map((o: Order) =>
+            o.id === order.id ? { ...o, status: 'preparing' } : o
+          );
+          localStorage.setItem('cashier_orders', JSON.stringify(updatedOrders));
+        }
+
+        setOrder({ ...order, status: 'preparing' });
+
+        toast.success('อนุมัติคำสั่งซื้อสำเร็จ', {
+          description: `คำสั่งซื้อ ${order.id} ได้รับการอนุมัติแล้ว`
+        });
+
+        setTimeout(() => navigate('/cashier/dashboard'), 1000);
+      } catch (e) {
+        console.error('Approve error:', e);
+        toast.error('ไม่สามารถอนุมัติคำสั่งซื้อได้');
+      }
+    })();
   };
 
   const handleReject = () => {
@@ -152,12 +171,12 @@ export default function CashierOrderDetail() {
                 <div className="flex justify-between">
                   <span className="text-gray-600">สถานะ :</span>
                   <span className={`px-3 py-1 rounded-full text-sm ${
-                    order.status === 'pending-verification' ? 'bg-yellow-100 text-yellow-800' :
-                    order.status === 'verified' ? 'bg-green-100 text-green-800' :
+                    order.status === 'received' ? 'bg-yellow-100 text-yellow-800' :
+                    order.status === 'preparing' ? 'bg-green-100 text-green-800' :
                     'bg-red-100 text-red-800'
                   }`}>
-                    {order.status === 'pending-verification' ? 'กำลังรอการยืนยัน' :
-                     order.status === 'verified' ? 'ยืนยันสำเร็จ' : 'ปฎิเสธ'}
+                    {order.status === 'received' ? 'กำลังรอการยืนยัน' :
+                     order.status === 'preparing' ? 'ยืนยันสำเร็จ' : 'ปฎิเสธ'}
                   </span>
                 </div>
               </div>
@@ -245,7 +264,7 @@ export default function CashierOrderDetail() {
             </div>
 
             {/* Actions */}
-            {order.status === 'pending-verification' && (
+            {order.status === 'received' && (
               <div className="bg-white rounded-xl shadow-md p-6">
                 <h2 className="text-xl mb-4 text-gray-900">ดำเนินการคำสั่งซื้อ</h2>
                 <div className="space-y-3">
@@ -267,7 +286,7 @@ export default function CashierOrderDetail() {
               </div>
             )}
 
-            {order.status === 'verified' && (
+            {order.status === 'preparing' && (
               <div className="bg-white rounded-xl shadow-md p-6">
                 <div className="text-center">
                   <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4">

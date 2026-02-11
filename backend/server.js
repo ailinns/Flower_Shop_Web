@@ -412,5 +412,63 @@ app.post('/api/employee/login', async (req, res) => {
   }
 });
 
+app.get("/api/order/branches/:branchId", async (req, res) => {
+  try {
+    const branchId = req.params.branchId;
+
+    const [r] = await pool.query(
+      `SELECT 
+        o.order_id,
+        o.order_code,
+        o.branch_id,
+        o.customer_id,
+        c.customer_name,
+        c.phone,
+        o.total_amount,
+        o.order_status,
+        o.created_at,
+        o.customer_note,
+        pm.payment_method_name
+      FROM \`order\` o
+      JOIN customer c ON o.customer_id = c.customer_id
+      LEFT JOIN payment p ON o.order_id = p.order_id
+      LEFT JOIN payment_method pm ON p.payment_method_id = pm.payment_method_id
+      WHERE o.branch_id = ?
+      ORDER BY o.created_at DESC`,
+      [branchId]
+    );
+
+    res.json(r);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json(err);
+  }
+});
+
+
 
 app.listen(PORT, () => console.log(`✅ API listening on http://localhost:${PORT}`));
+
+// Update order status (by order_id or order_code)
+app.put('/api/order/:orderIdentifier/status', async (req, res) => {
+  try {
+    const { orderIdentifier } = req.params;
+    const { status } = req.body || {};
+    if (!status) return res.status(400).json({ message: 'status is required' });
+
+    // Try to treat identifier as numeric order_id, otherwise use order_code
+    const maybeId = Number(orderIdentifier);
+    let result;
+    if (!Number.isNaN(maybeId)) {
+      [result] = await pool.query('UPDATE `order` SET order_status = ? WHERE order_id = ?', [status, maybeId]);
+    } else {
+      [result] = await pool.query('UPDATE `order` SET order_status = ? WHERE order_code = ?', [status, orderIdentifier]);
+    }
+
+    return res.json({ success: true, changedRows: result.affectedRows || 0, status });
+  } catch (err) {
+    console.error('❌ Update order status error:', err);
+    return res.status(500).json({ message: 'Server error', detail: err.message });
+  }
+});

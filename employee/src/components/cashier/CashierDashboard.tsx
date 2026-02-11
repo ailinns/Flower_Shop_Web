@@ -12,70 +12,80 @@ interface Order {
   paymentMethod: string;
 }
 
+interface Employee {
+  name: string;
+  surname: string;
+  branch_id: number;
+}
+
 export default function CashierDashboard() {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [orders, setOrders] = useState<Order[]>([]);
+  const [employee, setEmployee] = useState<Employee | null>(null);
+  const [branchName, setBranchName] = useState('');
 
-  // Load orders from localStorage or use initial data
+  // Load employee data and orders
   useEffect(() => {
-    const savedOrders = localStorage.getItem('cashier_orders');
-    if (savedOrders) {
-      setOrders(JSON.parse(savedOrders));
-    } else {
-      const initialOrders = [
-        {
-          id: 'ORD7F8K2M',
-          customerName: 'เอกกี้ ขยี้ใจ',
-          phone: '089-223-4555',
-          total: 95.00,
-          status: 'pending-verification',
-          date: '2025-12-04 14:30',
-          paymentMethod: 'QR Code'
-        },
-        {
-          id: 'ORD9X2L5N',
-          customerName: 'Jane Smith',
-          phone: '085-652-3361',
-          total: 78.00,
-          status: 'pending-verification',
-          date: '2025-12-04 15:15',
-          paymentMethod: 'QR Code'
-        },
-        {
-          id: 'ORDM4P8Q1',
-          customerName: 'เบ้น เบ้นซ์',
-          phone: '092-901-2523',
-          total: 120.00,
-          status: 'verified',
-          date: '2025-12-04 13:45',
-          paymentMethod: 'QR Code'
-        },
-        {
-          id: 'ORDK7H3W9',
-          customerName: 'นิววี่ วิ๊ดวิ้ว',
-          phone: '063-345-6523',
-          total: 85.00,
-          status: 'verified',
-          date: '2025-12-04 12:20',
-          paymentMethod: 'QR Code'
-        }
-      ];
-      setOrders(initialOrders);
-      localStorage.setItem('cashier_orders', JSON.stringify(initialOrders));
+    // Load employee data from localStorage
+    const savedEmployee = localStorage.getItem('cashier_employee');
+    console.log('Saved Employee:', savedEmployee);
+    console.log("order",orders)
+    if (savedEmployee) {
+      const employeeData = JSON.parse(savedEmployee);
+      setEmployee(employeeData);
+      
+      // Fetch branch name
+      if (employeeData.branch_id) {
+        fetch(`http://localhost:3000/api/branches`)
+          .then(res => res.json())
+          .then((branches: any[]) => {
+            const branch = branches.find(b => b.branch_id === employeeData.branch_id);
+            if (branch) {
+              setBranchName(branch.branch_name);
+            }
+          })
+          .catch(err => console.error('Failed to load branches:', err));
+      }
     }
+
+    // Load orders from backend API
+    const employeeData = JSON.parse(savedEmployee || '{}');
+    if (employeeData.branch_id) {
+      fetch(`http://localhost:3000/api/order/branches/${employeeData.branch_id}`)
+        .then(res => res.json())
+        .then(data => {
+          console.log('Fetched Orders Data:', data[0]);
+          // Map database order fields to Order interface
+          const mappedOrders = (Array.isArray(data) ? data : []).map((order: any) => ({
+            id: order.order_code || order.order_id,
+            customerName: order.customer_name || 'Unknown',
+            phone: order.phone || '',
+            total:  Number(order.total_amount) || 0,
+            status: order.order_status,
+            date: order.created_at ? new Date(order.created_at).toLocaleString('th-TH') : 'N/A',
+            paymentMethod: order.payment_method_name || 'Unknown'
+          }));
+          console.log('data Orders:', data);
+          console.log('Mapped Orders:', mappedOrders);
+          setOrders(mappedOrders);
+        })
+        .catch(err => console.error('Failed to load orders:', err));
+    }
+
+
   }, []);
 
   const getStatusBadge = (status: string) => {
     const badges = {
-      'pending-verification': {
+      'received': {
         bg: 'bg-yellow-100',
         text: 'text-yellow-800',
         icon: Clock,
         label: 'กำลังรอการยืนยัน'
       },
-      'verified': {
+      'preparing': {
         bg: 'bg-green-100',
         text: 'text-green-800',
         icon: CheckCircle,
@@ -106,8 +116,8 @@ export default function CashierDashboard() {
   });
 
   const stats = [
-    { label: 'กำลังรอการยืนยัน', value: orders.filter(o => o.status === 'pending-verification').length, color: 'bg-yellow-500' },
-    { label: 'ยืนยันสำเร็จ', value: orders.filter(o => o.status === 'verified').length, color: 'bg-green-500' },
+    { label: 'กำลังรอการยืนยัน', value: orders.filter(o => o.status === 'received').length, color: 'bg-yellow-500' },
+    { label: 'ยืนยันสำเร็จ', value: orders.filter(o => o.status === 'preparing').length, color: 'bg-green-500' },
     { label: 'จำนวนคำสั่งซื้อ', value: orders.length, color: 'bg-blue-500' }
   ];
 
@@ -120,6 +130,11 @@ export default function CashierDashboard() {
             <div>
               <h1 className="text-2xl text-gray-900">Cashier Dashboard</h1>
               <p className="text-sm text-gray-600">จัดการและยืนยันคำสั่งซื้อ</p>
+              {employee && branchName && (
+                <p className="text-sm text-gray-500 mt-2">
+                  <span className="text-gray-700">สาขา: <span className="font-semibold">{branchName}</span> | พนักงาน: <span className="font-semibold">{employee.name} {employee.surname}</span></span>
+                </p>
+              )}
             </div>
             <button
               onClick={() => navigate('/')}
@@ -169,8 +184,8 @@ export default function CashierDashboard() {
                 className="px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none bg-white"
               >
                 <option value="all">สถานะทั้งหมด</option>
-                <option value="pending-verification">กำลังรอ</option>
-                <option value="verified">ยืนยันเรียบร้อย</option>
+                <option value="received">กำลังรอ</option>
+                <option value="preparing">ยืนยันเรียบร้อย</option>
               </select>
             </div>
           </div>
