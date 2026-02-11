@@ -368,4 +368,49 @@ app.post("/check-stocks", async (req, res) => {
 });
 
 
+// Employee login endpoint
+app.post('/api/employee/login', async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ message: 'username and password are required' });
+    }
+
+    // Query the employee table in the `employee` database. Adjust qualification if your table lives in the same DB as other tables.
+    const [rows] = await pool.query(
+      'SELECT employee_id, username, password_hash, role_id, branch_id, name, surname FROM `employee` WHERE username = ? LIMIT 1',
+      [username]
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    const user = rows[0];
+
+    // Simple password check: compare provided password with stored password_hash value.
+    // If your database stores hashed passwords, replace this with the appropriate hash comparison.
+    if (user.password_hash !== password) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // Respond with minimal user info (avoid returning password hash)
+    return res.json({
+      success: true,
+      employee: {
+        employee_id: user.employee_id,
+        username: user.username,
+        role_id: user.role_id,
+        branch_id: user.branch_id,
+        name: user.name,
+        surname: user.surname,
+      },
+    });
+  } catch (err) {
+    console.error('❌ Employee Login Error:', err.message);
+    return res.status(500).json({ message: 'Server error', detail: err.message });
+  }
+});
+
+
 app.listen(PORT, () => console.log(`✅ API listening on http://localhost:${PORT}`));
