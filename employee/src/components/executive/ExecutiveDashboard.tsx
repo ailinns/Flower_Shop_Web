@@ -1,14 +1,15 @@
 import { useNavigate } from 'react-router-dom';
 import { DollarSign, ShoppingBag, TrendingUp, Users, Building2, LogOut, Package, Clock, Filter, X } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function ExecutiveDashboard() {
   const navigate = useNavigate();
   const [showFilters, setShowFilters] = useState(false);
+  const [overview, setOverview] = useState<any | null>(null);
   
   // Filter states
-  const [dateRange, setDateRange] = useState('this-month');
+  const [dateRange, setDateRange] = useState('this-year');
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
   const [kpiView, setKpiView] = useState('revenue');
   const [productCategory, setProductCategory] = useState('all');
@@ -16,53 +17,159 @@ export default function ExecutiveDashboard() {
   const [compareMode, setCompareMode] = useState(false);
 
   const kpiData = [
-    { label: 'รายได้รวม', value: '฿125,450', change: '+15%', color: 'bg-blue-500', icon: DollarSign },
-    { label: 'คำสั่งซื้อทั้งหมด', value: '3,245', change: '+12%', color: 'bg-green-500', icon: ShoppingBag },
-    { label: 'สาขาที่ใช้งานอยู่', value: '3', change: '0%', color: 'bg-purple-500', icon: Building2 },
-    { label: 'ฐานลูกค้า', value: '1,892', change: '+8%', color: 'bg-orange-500', icon: Users }
+    { label: 'รายได้รวม', value: overview ? `฿${overview.total_revenue.toLocaleString()}` : '฿—', change: '+', color: 'bg-blue-500', icon: DollarSign },
+    { label: 'คำสั่งซื้อทั้งหมด', value: overview ? overview.total_orders.toLocaleString() : '—', change: '+', color: 'bg-green-500', icon: ShoppingBag },
+    { label: 'สาขาที่ใช้งานอยู่', value: overview ? overview.branches.length.toString() : '—', change: '0%', color: 'bg-purple-500', icon: Building2 },
+    { label: 'ฐานลูกค้า', value: overview ? overview.customer_count.toLocaleString() : '—', change: '+', color: 'bg-orange-500', icon: Users }
   ];
 
-  const monthlyRevenue = [
-    { month: 'ม.ค.', revenue: 85000 },
-    { month: 'ก.พ.', revenue: 92000 },
-    { month: 'มี.ค.', revenue: 88000 },
-    { month: 'เม.ย.', revenue: 95000 },
-    { month: 'พ.ค.', revenue: 105000 },
-    { month: 'มิ.ย.', revenue: 110000 },
-    { month: 'ก.ค.', revenue: 115000 },
-    { month: 'ส.ค.', revenue: 120000 },
-    { month: 'ก.ย.', revenue: 118000 },
-    { month: 'ต.ค.', revenue: 125000 },
-    { month: 'พ.ย.', revenue: 130000 },
-    { month: 'ธ.ค.', revenue: 125450 }
-  ];
+  const [monthlyRevenue, setMonthlyRevenue] = useState<{ month: string; revenue: number }[]>([]);
+  const [branchesList, setBranchesList] = useState<Array<{ branch_id: number; branch_name: string }>>([]);
+
+  // map month index to Thai short names
+  const monthNames = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
   const branchPerformance = [
-    { branch: 'พิจิตร', revenue: 58000, orders: 1250 },
-    { branch: 'แพร่', revenue: 42000, orders: 1100 },
-    { branch: 'สงขลา', revenue: 25450, orders: 895 }
+    // will be replaced by API data
+    ...(overview && Array.isArray(overview.branch_performance) ? overview.branch_performance.map((b: any) => ({ branch: b.branch_name, revenue: Number(b.revenue), orders: Number(b.orders), employee_count: Number(b.employee_count || 0) })) : [
+      { branch: 'พิจิตร', revenue: 58000, orders: 1250, employee_count: 8 },
+      { branch: 'แพร่', revenue: 42000, orders: 1100, employee_count: 6 },
+      { branch: 'สงขลา', revenue: 25450, orders: 895, employee_count: 5 }
+    ])
   ];
 
-  const productCategoryData = [
-    { name: 'ช่อดอกไม้', value: 65, color: '#4DA3FF' },
-    { name: 'แจกัน', value: 25, color: '#14B8A6' },
-    { name: 'อุปกรณ์เสริม', value: 10, color: '#F59E0B' }
-  ];
+  const [productCategoryData, setProductCategoryData] = useState<{ name: string; value: number; color: string }[]>([]);
 
-  const topPerformers = [
-    { name: 'สาขาใจพิจิตร', metric: 'รายได้สูงสุด', value: '฿58,000' },
-    { name: 'ช่อกุหลาบสีชมพู', metric: 'ขายดีที่สุด', value: 'ขายได้ 1,245 ชิ้น' },
-    { name: 'เบ้น ทองแท้ (ช่างจัดดอกไม้)', metric: 'คะแนนสูงสุด', value: '4.9/5.0' }
+  const defaultColors = ['#4DA3FF', '#14B8A6', '#F59E0B', '#A78BFA', '#FB7185', '#60A5FA'];
+
+  const topPerformers = overview ? [
+    {
+      name: overview.top_branch ? overview.top_branch.branch_name : '—',
+      metric: 'รายได้สูงสุด',
+      value: overview.top_branch ? `฿${Number(overview.top_branch.revenue).toLocaleString()}` : '฿0'
+    },
+    {
+      name: overview.top_flower ? overview.top_flower.flower_name : '—',
+      metric: 'ขายดีที่สุด',
+      value: overview.top_flower ? `${overview.top_flower.qty.toLocaleString()} ชิ้น` : '0 ชิ้น'
+    }
+  ] : [
+    { name: '—', metric: 'รายได้สูงสุด', value: '฿—' },
+    { name: '—', metric: 'ขายดีที่สุด', value: '—' }
   ];
 
   const clearAllFilters = () => {
-    setDateRange('this-month');
+    setDateRange('this-year');
     setSelectedBranches([]);
     setKpiView('revenue');
     setProductCategory('all');
     setOperationalMetric('all');
     setCompareMode(false);
   };
+
+  // build query params helper
+  const buildQueryParams = () => {
+    const params: Record<string, string> = {};
+
+    // date range mapping (supports simple presets)
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    if (dateRange === 'today') {
+      const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      params.start_date = today;
+      params.end_date = today;
+    } else if (dateRange === 'this-week') {
+      // ISO week starting Monday
+      const day = now.getDay(); // 0 (Sun) .. 6 (Sat)
+      const diffToMonday = (day + 6) % 7; // days since Monday
+      const monday = new Date(now);
+      monday.setDate(now.getDate() - diffToMonday);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      const start = `${monday.getFullYear()}-${pad(monday.getMonth() + 1)}-${pad(monday.getDate())}`;
+      const end = `${sunday.getFullYear()}-${pad(sunday.getMonth() + 1)}-${pad(sunday.getDate())}`;
+      params.start_date = start;
+      params.end_date = end;
+    } else if (dateRange === 'this-month') {
+      const start = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+      const end = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate())}`;
+      params.start_date = start;
+      params.end_date = end;
+    } else if (dateRange === 'this-year') {
+      params.start_date = `${now.getFullYear()}-01-01`;
+      params.end_date = `${now.getFullYear()}-12-31`;
+    } else if (dateRange === 'last-month') {
+      const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const start = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
+      const end = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())}`;
+      params.start_date = start;
+      params.end_date = end;
+    } else if (dateRange === 'last-year') {
+      const y = now.getFullYear() - 1;
+      params.start_date = `${y}-01-01`;
+      params.end_date = `${y}-12-31`;
+    }
+
+    // branches: send branch_ids csv. If none selected, send all branch ids.
+    const allBranchIds = branchesList.map(b => b.branch_id);
+    if (selectedBranches && selectedBranches.length > 0) {
+      params.branch_ids = selectedBranches.join(',');
+    } else if (allBranchIds.length > 0) {
+      params.branch_ids = allBranchIds.join(',');
+    }
+
+    // product category -> product_type param (map known slugs)
+    if (productCategory && productCategory !== 'all') {
+      if (productCategory === 'bouquet') params.product_type = 'Bouquet';
+      else if (productCategory === 'vase') params.product_type = 'Vase';
+      else params.product_type = productCategory;
+    }
+
+    return new URLSearchParams(params).toString();
+  };
+
+  // fetch branch list once
+  useEffect(() => {
+    fetch('http://localhost:3000/api/branches')
+      .then(res => res.json())
+      .then((data: Array<{ branch_id: number; branch_name: string }>) => setBranchesList(data || []))
+      .catch(err => console.error('Failed to load branches:', err));
+  }, []);
+
+  // fetch data when filters or branch list changes (use branch list length to avoid loop)
+  useEffect(() => {
+    const qp = buildQueryParams();
+
+    // fetch overview KPIs
+    fetch(`http://localhost:3000/api/executive/overview?${qp}`)
+      .then(res => res.json())
+      .then(data => setOverview(data))
+      .catch(err => console.error('Failed to load executive overview:', err));
+
+    // fetch monthly revenue and map to chart data
+    fetch(`http://localhost:3000/api/executive/monthly-revenue?${qp}`)
+      .then(res => res.json())
+      .then((data: Array<{ month: number; revenue: number }>) => {
+        const mapped = data.map(d => ({ month: monthNames[d.month - 1] || String(d.month), revenue: Number(d.revenue) }));
+        setMonthlyRevenue(mapped);
+      })
+      .catch(err => console.error('Failed to load monthly revenue:', err));
+
+    // fetch product/category sales (includes product_type) with filters
+    fetch(`http://localhost:3000/api/executive/category-sales?${qp}`)
+      .then(res => res.json())
+      .then((data: { total: number; items: Array<{ product_name: string; product_type?: string; revenue: number; percent: number }> }) => {
+        if (!data || !Array.isArray(data.items)) return;
+        const mapped = data.items.map((it, idx) => ({
+          name: `${it.product_name} (${it.product_type || '—'})`,
+          value: Number(it.percent.toFixed(2)),
+          color: defaultColors[idx % defaultColors.length]
+        }));
+        setProductCategoryData(mapped);
+      })
+      .catch(err => console.error('Failed to load category sales:', err));
+  // re-run when filters or branch list size change
+  }, [dateRange, selectedBranches, productCategory, branchesList.length]);
 
   const toggleBranch = (branchId: string) => {
     if (selectedBranches.includes(branchId)) {
@@ -229,36 +336,19 @@ export default function ExecutiveDashboard() {
                   >
                     ทุกสาขา
                   </button>
-                  <button
-                    onClick={() => toggleBranch('phichit')}
-                    className={`px-4 py-2 border-2 rounded-lg transition-colors ${
-                      selectedBranches.includes('phichit')
-                        ? 'border-blue-500 bg-blue-50 text-blue-700' 
-                        : 'border-gray-200 text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    พิจิตร
-                  </button>
-                  <button
-                    onClick={() => toggleBranch('phrae')}
-                    className={`px-4 py-2 border-2 rounded-lg transition-colors ${
-                      selectedBranches.includes('phrae')
-                        ? 'border-blue-500 bg-blue-50 text-blue-700' 
-                        : 'border-gray-200 text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    แพร่
-                  </button>
-                  <button
-                    onClick={() => toggleBranch('songkhla')}
-                    className={`px-4 py-2 border-2 rounded-lg transition-colors ${
-                      selectedBranches.includes('songkhla')
-                        ? 'border-blue-500 bg-blue-50 text-blue-700' 
-                        : 'border-gray-200 text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    สงขลา
-                  </button>
+                  {branchesList.map((b) => (
+                    <button
+                      key={b.branch_id}
+                      onClick={() => toggleBranch(String(b.branch_id))}
+                      className={`px-4 py-2 border-2 rounded-lg transition-colors ${
+                        selectedBranches.includes(String(b.branch_id))
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-200 text-gray-700 hover:border-gray-300'
+                      }`}
+                    >
+                      {b.branch_name}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
@@ -274,7 +364,7 @@ export default function ExecutiveDashboard() {
                     dateRange === 'last-month' ? 'เดือนที่แล้ว' :
                     dateRange === 'last-year' ? 'ปีที่แล้ว' : 'กำหนดเอง'
                   }
-                  <button onClick={() => setDateRange('this-month')} className="hover:bg-blue-200 rounded-full p-0.5">
+                  <button onClick={() => setDateRange('this-year')} className="hover:bg-blue-200 rounded-full p-0.5">
                     <X className="w-3 h-3" />
                   </button>
                 </span>
@@ -400,19 +490,17 @@ export default function ExecutiveDashboard() {
         {/* Top Performers */}
         <div className="bg-white rounded-xl shadow-md p-6 mb-8">
           <h2 className="text-xl mb-6 text-gray-900">ผลงานชั้นนำ</h2>
-          <div className="grid md:grid-cols-3 gap-6">
+          <div className="flex flex-col md:flex-row items-center justify-center gap-6">
             {topPerformers.map((performer, index) => (
-              <div key={index} className="p-6 bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl border-2 border-blue-200">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white">
+              <div key={index} className="w-full md:w-1/3 p-6 bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl border-2 border-blue-200 text-center">
+                <div className="flex flex-col items-center gap-3 mb-2">
+                  <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center text-white text-lg font-semibold">
                     {index + 1}
                   </div>
-                  <div className="flex-1">
-                    <p className="text-xs text-gray-600">{performer.metric}</p>
-                    <p className="text-gray-900">{performer.name}</p>
-                  </div>
+                  <p className="text-sm text-gray-600 uppercase tracking-wide">{performer.metric}</p>
+                  <p className="text-lg font-semibold text-gray-900">{performer.name}</p>
                 </div>
-                <p className="text-2xl text-blue-600">{performer.value}</p>
+                <p className="text-3xl text-blue-600 font-bold mt-2">{performer.value}</p>
               </div>
             ))}
           </div>
@@ -444,10 +532,10 @@ export default function ExecutiveDashboard() {
                         <span className="text-gray-900">สาขา{branch.branch}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-gray-900">${branch.revenue.toLocaleString()}</td>
+                    <td className="px-6 py-4 text-gray-900">฿{branch.revenue.toLocaleString()}</td>
                     <td className="px-6 py-4 text-gray-900">{branch.orders}</td>
-                    <td className="px-6 py-4 text-gray-900">${(branch.revenue / branch.orders).toFixed(2)}</td>
-                    <td className="px-6 py-4 text-gray-900">{8 + index * 2}</td>
+                    <td className="px-6 py-4 text-gray-900">฿{(branch.revenue / branch.orders).toFixed(2)}</td>
+                    <td className="px-6 py-4 text-gray-900">{branch.employee_count ?? 0}</td>
                     <td className="px-6 py-4">
                       <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm">
                         ใช้งานอยู่

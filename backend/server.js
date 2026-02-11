@@ -125,6 +125,17 @@ app.get('/api/bouquet-styles', async (_req, res) => {
   }
 });
 
+// Product types
+app.get('/api/product-types', async (_req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT product_type_id, product_type_name FROM product_type ORDER BY product_type_name');
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Product Types API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load product types', detail: err.message });
+  }
+});
+
 // Create order (transactional)
 app.post('/api/orders', async (req, res) => {
   const payload = req.body || {};
@@ -470,5 +481,263 @@ app.put('/api/order/:orderIdentifier/status', async (req, res) => {
   } catch (err) {
     console.error('❌ Update order status error:', err);
     return res.status(500).json({ message: 'Server error', detail: err.message });
+  }
+});
+
+// Executive login endpoint
+app.post('/api/executive/login', async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ message: 'username and password are required' });
+    }
+
+    const [rows] = await pool.query(
+      'SELECT executive_id, username, password_hash, name, surname, phone FROM `executive` WHERE username = ? LIMIT 1',
+      [username]
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    const user = rows[0];
+    if (user.password_hash !== password) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    return res.json({
+      success: true,
+      executive: {
+        executive_id: user.executive_id,
+        username: user.username,
+        name: user.name,
+        surname: user.surname,
+        phone: user.phone
+      }
+    });
+  } catch (err) {
+    console.error('❌ Executive Login Error:', err.message);
+    return res.status(500).json({ message: 'Server error', detail: err.message });
+  }
+});
+
+// Executive overview: totals for current year, branch list and customer count
+app.get('/api/executive/overview', async (req, res) => {
+  try {
+    // Support optional filters via query params: start_date, end_date, branch_ids (csv), branch_names (csv)
+    const { start_date, end_date, branch_ids, branch_names } = req.query || {};
+    const dateCondition = (field = 'created_at') => {
+      if (start_date && end_date) return `(DATE(${field}) BETWEEN ? AND ?)`;
+      return `YEAR(${field}) = YEAR(CURDATE())`;
+    };
+    // Total revenue this year
+    // Build params and query conditions
+    const params = [];
+    let branchFilterSqlOrder = '';
+    let branchFilterSqlO = '';
+    if (branch_ids) {
+      const ids = String(branch_ids).split(',').map(s => Number(s.trim())).filter(n => !Number.isNaN(n));
+      if (ids.length) {
+        branchFilterSqlOrder = ` AND branch_id IN (${ids.map(() => '?').join(',')})`;
+        branchFilterSqlO = ` AND o.branch_id IN (${ids.map(() => '?').join(',')})`;
+        params.push(...ids);
+      }
+    } else if (branch_names) {
+      const names = String(branch_names).split(',').map(s => s.trim()).filter(Boolean);
+      if (names.length) {
+        branchFilterSqlOrder = ` AND branch_id IN (SELECT branch_id FROM branch WHERE branch_name IN (${names.map(() => '?').join(',')}))`;
+        branchFilterSqlO = ` AND o.branch_id IN (SELECT branch_id FROM branch WHERE branch_name IN (${names.map(() => '?').join(',')}))`;
+        params.push(...names);
+      }
+    }
+
+    const revSql = `SELECT IFNULL(SUM(total_amount),0) AS total_revenue FROM \`order\` WHERE ${dateCondition('created_at')}${branchFilterSqlOrder}`;
+    const revParams = start_date && end_date ? [start_date, end_date, ...params] : params;
+    const [[revRow]] = await pool.query(revSql, revParams);
+
+    // Total orders this year
+    const ordersSql = `SELECT COUNT(*) AS total_orders FROM \`order\` WHERE ${dateCondition('created_at')}${branchFilterSqlOrder}`;
+    const ordersParams = start_date && end_date ? [start_date, end_date, ...params] : params;
+    const [[ordersRow]] = await pool.query(ordersSql, ordersParams);
+
+    // Branch count and list
+    const [branches] = await pool.query(`SELECT branch_id, branch_name FROM branch ORDER BY branch_name`);
+
+    // Customer count
+    const [[custRow]] = await pool.query(`SELECT COUNT(*) AS customer_count FROM customer`);
+
+    // Per-branch performance this year
+    // Aggregate orders/revenue in a subquery first to avoid duplication when joining employees
+    // Per-branch performance with same filters
+    const branchPerfSql = `SELECT b.branch_id, b.branch_name,
+              COALESCE(oa.orders,0) AS orders,
+              COALESCE(oa.revenue,0) AS revenue,
+              COUNT(DISTINCT emp.employee_id) AS employee_count
+       FROM branch b
+       LEFT JOIN (
+         SELECT branch_id, COUNT(*) AS orders, SUM(total_amount) AS revenue
+         FROM \`order\`
+         WHERE ${dateCondition('created_at')}${branchFilterSqlOrder}
+         GROUP BY branch_id
+       ) oa ON oa.branch_id = b.branch_id
+       LEFT JOIN employee emp ON emp.branch_id = b.branch_id
+       GROUP BY b.branch_id, b.branch_name, oa.orders, oa.revenue
+       ORDER BY revenue DESC`;
+    const branchPerfParams = start_date && end_date ? [start_date, end_date, ...params] : params;
+    const [branchPerf] = await pool.query(branchPerfSql, branchPerfParams);
+
+    // Top branch (highest revenue)
+     const topBranchSql = `SELECT b.branch_id, b.branch_name, IFNULL(SUM(o.total_amount),0) AS revenue
+       FROM \`order\` o
+       JOIN branch b ON b.branch_id = o.branch_id
+       WHERE ${dateCondition('o.created_at')}${branchFilterSqlO}
+       GROUP BY b.branch_id, b.branch_name
+       ORDER BY revenue DESC
+       LIMIT 1`;
+     const topBranchParams = start_date && end_date ? [start_date, end_date, ...params] : params;
+     const [topBranchRows] = await pool.query(topBranchSql, topBranchParams);
+
+    // Top flower (most sold) based on flower_detail linked to shopping_cart within current year orders
+     const topFlowerSql = `SELECT ft.flower_name, COUNT(*) AS qty
+       FROM shopping_cart sc
+       JOIN \`order\` o ON sc.order_id = o.order_id
+       JOIN flower_detail fd ON fd.shopping_cart_id = sc.shopping_cart_id
+       JOIN flower_type ft ON ft.flower_type_id = fd.flower_type_id
+       WHERE ${dateCondition('o.created_at')}${branchFilterSqlO}
+       GROUP BY ft.flower_type_id, ft.flower_name
+       ORDER BY qty DESC
+       LIMIT 1`;
+     const topFlowerParams = start_date && end_date ? [start_date, end_date, ...params] : params;
+     const [topFlowerRows] = await pool.query(topFlowerSql, topFlowerParams);
+
+    return res.json({
+      total_revenue: Number(revRow.total_revenue) || 0,
+      total_orders: Number(ordersRow.total_orders) || 0,
+      customer_count: Number(custRow.customer_count) || 0,
+      branches,
+      branch_performance: branchPerf,
+      top_branch: topBranchRows[0] || null,
+      top_flower: topFlowerRows[0] || null
+    });
+  } catch (err) {
+    console.error('❌ Executive overview error:', err);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
+// Monthly revenue for current year (returns array with month numbers and revenue)
+app.get('/api/executive/monthly-revenue', async (req, res) => {
+  try {
+    const { start_date, end_date, branch_ids, branch_names } = req.query || {};
+    const params = [];
+    let branchFilterSql = '';
+    if (branch_ids) {
+      const ids = String(branch_ids).split(',').map(s => Number(s.trim())).filter(n => !Number.isNaN(n));
+      if (ids.length) {
+        branchFilterSql = ` AND branch_id IN (${ids.map(() => '?').join(',')})`;
+        params.push(...ids);
+      }
+    } else if (branch_names) {
+      const names = String(branch_names).split(',').map(s => s.trim()).filter(Boolean);
+      if (names.length) {
+        branchFilterSql = ` AND branch_id IN (SELECT branch_id FROM branch WHERE branch_name IN (${names.map(() => '?').join(',')}))`;
+        params.push(...names);
+      }
+    }
+
+    const dateCondition = (field = 'created_at') => {
+      if (start_date && end_date) return `(DATE(${field}) BETWEEN ? AND ?)`;
+      return `YEAR(${field}) = YEAR(CURDATE())`;
+    };
+
+    const sql = `SELECT MONTH(created_at) AS month, IFNULL(SUM(total_amount),0) AS revenue
+       FROM \`order\`
+       WHERE ${dateCondition('created_at')}${branchFilterSql}
+       GROUP BY MONTH(created_at)
+       ORDER BY MONTH(created_at)`;
+    const sqlParams = start_date && end_date ? [start_date, end_date, ...params] : params;
+    const [rows] = await pool.query(sql, sqlParams);
+
+    // Build full 12-month array (1..12) with zeros for missing months
+    const months = Array.from({ length: 12 }, (_v, i) => ({ month: i + 1, revenue: 0 }));
+    for (const r of rows) {
+      const m = Number(r.month);
+      if (m >= 1 && m <= 12) months[m - 1].revenue = Number(r.revenue);
+    }
+
+    return res.json(months);
+  } catch (err) {
+    console.error('❌ Monthly revenue error:', err);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
+// Category / Product sales for current year (returns product_name, revenue, percent)
+app.get('/api/executive/category-sales', async (req, res) => {
+  try {
+    const { start_date, end_date, branch_ids, branch_names, product_type } = req.query || {};
+    const params = [];
+    let branchFilterSql = '';
+    if (branch_ids) {
+      const ids = String(branch_ids).split(',').map(s => Number(s.trim())).filter(n => !Number.isNaN(n));
+      if (ids.length) {
+        branchFilterSql = ` AND o.branch_id IN (${ids.map(() => '?').join(',')})`;
+        params.push(...ids);
+      }
+    } else if (branch_names) {
+      const names = String(branch_names).split(',').map(s => s.trim()).filter(Boolean);
+      if (names.length) {
+        branchFilterSql = ` AND o.branch_id IN (SELECT branch_id FROM branch WHERE branch_name IN (${names.map(() => '?').join(',')}))`;
+        params.push(...names);
+      }
+    }
+
+    let productFilterSql = '';
+    if (product_type) {
+      // accept either product_type id or name
+      const asNum = Number(product_type);
+      if (!Number.isNaN(asNum)) {
+        productFilterSql = ` AND pr.product_type_id = ?`;
+        params.push(asNum);
+      } else {
+        productFilterSql = ` AND pt.product_type_name = ?`;
+        params.push(String(product_type));
+      }
+    }
+
+    const dateCondition = (field = 'o.created_at') => {
+      if (start_date && end_date) return `(${field} BETWEEN ? AND ?)`;
+      return `YEAR(${field}) = YEAR(CURDATE())`;
+    };
+
+    const sql = `SELECT pr.product_id,
+              pr.product_name,
+              pt.product_type_name AS product_type,
+              IFNULL(SUM(sc.price_total),0) AS revenue
+       FROM shopping_cart sc
+       JOIN product pr ON pr.product_id = sc.product_id
+       LEFT JOIN product_type pt ON pt.product_type_id = pr.product_type_id
+       JOIN \`order\` o ON o.order_id = sc.order_id
+       WHERE ${dateCondition('o.created_at')}${branchFilterSql}${productFilterSql}
+       GROUP BY pr.product_id, pr.product_name, pt.product_type_name
+       ORDER BY revenue DESC`;
+
+    const sqlParams = start_date && end_date ? [start_date, end_date, ...params] : params;
+    const [rows] = await pool.query(sql, sqlParams);
+
+    const total = rows.reduce((s, r) => s + Number(r.revenue || 0), 0);
+    const mapped = rows.map(r => ({
+      product_id: r.product_id,
+      product_name: r.product_name,
+      product_type: r.product_type || null,
+      revenue: Number(r.revenue || 0),
+      percent: total > 0 ? (Number(r.revenue || 0) / total) * 100 : 0
+    }));
+
+    return res.json({ total, items: mapped });
+  } catch (err) {
+    console.error('❌ Category sales error:', err);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
   }
 });

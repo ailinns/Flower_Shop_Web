@@ -15,7 +15,7 @@ export default function ExecutiveLogin({ onLogin }: ExecutiveLoginProps) {
     e.preventDefault();
     setError('');
     try {
-      const res = await fetch('http://localhost:3000/api/employee/login', {
+      const res = await fetch('http://localhost:3000/api/executive/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
@@ -25,6 +25,8 @@ export default function ExecutiveLogin({ onLogin }: ExecutiveLoginProps) {
         setError(data.message || 'เข้าสู่ระบบไม่สำเร็จ');
         return;
       }
+      // store executive info
+      if (data.executive) localStorage.setItem('executive_user', JSON.stringify(data.executive));
       onLogin();
       navigate('/executive/dashboard');
     } catch (err) {
