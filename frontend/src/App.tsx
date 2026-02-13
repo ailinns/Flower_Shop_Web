@@ -2,25 +2,28 @@ import { useState } from 'react';
 import { type FlowerType as DbFlowerType } from './api/flower.api';
 import { BouquetStyleSelection } from './components/BouquetStyleSelection';
 import { BranchSelection } from './components/BranchSelection';
-import { Home } from './components/Home';
 import { Cart } from './components/Cart';
 import { DeliveryInfo } from './components/DeliveryInfo';
 import { FlowerTypeSelection } from './components/FlowerTypeSelection';
+import { Home } from './components/Home';
 import { OrderComplete } from './components/OrderComplete';
 import { OrderTracking } from './components/OrderTracking';
 import { Payment } from './components/Payment';
 import { PriceColorSelection } from './components/PriceColorSelection';
 import { ProductTypeSelection } from './components/ProductTypeSelection';
+import { SnowEffect } from './components/SnowEffect';
 
 export type ProductType = 'bouquet' | 'vase';
 export type BouquetStyle = 'round' | 'long';
 export type FlowerColor = string;
 export type FlowerType = 'rose' | 'lily' | 'tulip' | 'orchid' | 'sunflower' | 'samadihae';
 
+
+
 export interface CartItem {
   id: string;
   productType: ProductType;
-  bouquetStyle?: BouquetStyle;
+  bouquetStyle?: number; // bouquet_style_id (1 = round, 2 = long)
   price: number;
   color: FlowerColor;
   flowerTypes: FlowerType[];
@@ -63,6 +66,7 @@ export default function App() {
   const [selectedPrice, setSelectedPrice] = useState(0);
   const [selectedColor, setSelectedColor] = useState<FlowerColor>('pink');
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
+  const [selectedBouquetStyle, setSelectedBouquetStyle] = useState<number | null>(null);
   const [selectedVaseColorId, setSelectedVaseColorId] = useState<number | null>(null);
   const [selectedFlowerTypes, setSelectedFlowerTypes] = useState<FlowerType[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -77,7 +81,7 @@ export default function App() {
   const handleProductTypeSelect = (type: ProductType) => {
     setProductType(type);
     if (type === 'bouquet') {
-      setStep('bouquetStyle');
+      setStep('priceColor');
     } else {
       setStep('priceColor');
     }
@@ -86,13 +90,31 @@ export default function App() {
   const handleBouquetStyleSelect = (style: BouquetStyle) => {
     setBouquetStyle(style);
     setStep('priceColor');
+    // Fetch bouquet data with product_type_id = 1
+    fetchBouquetData(1);
   };
 
-  const handlePriceColorSelect = (price: number, color: FlowerColor, productId?: number | null, vaseColorId?: number | null) => {
+  const fetchBouquetData = async (productTypeId: number) => {
+    try {
+        const response = await fetch(`${API_BASE}/bouquets/${productTypeId}`);
+        const data = await response.json();
+        // Process the bouquet data as needed
+        console.log(data);
+    } catch (error) {
+        console.error('Error fetching bouquet data:', error);
+    }
+  };
+
+  const handlePriceColorSelect = (price: number, color: FlowerColor, productId?: number | null, bouquetStyleId?: number | null) => {
     setSelectedPrice(price);
     setSelectedColor(color);
     setSelectedProductId(productId ?? null);
-    setSelectedVaseColorId(vaseColorId ?? null);
+    // For vase: bouquetStyleId will be vaseColorId, for bouquet: it's the actual style ID
+    if (productType === 'bouquet') {
+      setSelectedBouquetStyle(bouquetStyleId ?? null);
+    } else {
+      setSelectedVaseColorId(bouquetStyleId ?? null);
+    }
     setStep('flowerType');
   };
 
@@ -115,7 +137,7 @@ export default function App() {
     const newItem: CartItem = {
       id: Date.now().toString(),
       productType,
-      bouquetStyle: productType === 'bouquet' ? bouquetStyle : undefined,
+      bouquetStyle: productType === 'bouquet' ? selectedBouquetStyle ?? undefined : undefined,
       price: selectedPrice,
       color: selectedColor,
       flowerTypes: flowerTypes,
@@ -179,7 +201,8 @@ export default function App() {
         if (missingProduct) {
           throw new Error('พบสินค้าที่ยังไม่มี product_id จากการเลือก โปรดเลือกรายการใหม่อีกครั้ง');
         }
-
+        console.log("Submitting",slipOkData)
+        console.log("Submitting method",slipOkData.method)
         const payload: any = {
           branch_id: branchId || null,
           pickup: Deliverytype === 'pickup',
@@ -188,13 +211,14 @@ export default function App() {
           receiver: { name: Sendername, phone: Senderphone, address: Deliverytype === 'pickup' ? 'ที่ร้าน' : Senderaddress },
           customer_note: Cardmessage || null,
           total_amount: cart.reduce((sum, item) => sum + item.price, 0),
-          payment: slipOkData,
+          payment: slipOkData.data,
+          method: slipOkData.method ,
           items: cart.map((it) => ({
             product_id: (it as any).productId,
             qty: 1,
             price_total: it.price,
-            bouquet_style_id: (it as any).bouquetStyle ? undefined : undefined,
-            vase_color_id: (it as any).vaseColorId || undefined,
+            bouquet_style_id: it.productType === 'bouquet' ? it.bouquetStyle : undefined,
+            vase_color_id: it.productType === 'vase' ? it.vaseColorId : undefined,
             flowers: (it as any).flowerTypeIds || []
           }))
         };
@@ -258,8 +282,13 @@ export default function App() {
     setStep('tracking');
   };
 
+  function handleBranchSelect(branchId: number): void {
+    throw new Error('Function not implemented.');
+  }
+
   return (
     <div className="min-h-screen bg-white">
+      <SnowEffect />
       {step === 'home' && (
         <Home
           onNext={handleProduct}
@@ -309,15 +338,17 @@ export default function App() {
           onConfirm={(slipFile) => {
       // slipFile คือ File object ที่ได้จาก Payment
       console.log('Payment slip:', slipFile);
-      // ส่ง slip ไปยัง database
+      console.log('method',slipFile.method);
+      console.log('data qr',slipFile.data);
       AssigeToDatabase(slipFile);
+      
     }}
           onCancel={() => setStep('cart')}
         />
       )}
       {step === 'delivery' && (
         <DeliveryInfo
-
+          cartItems={cart}
           orderId={`ORD${Date.now().toString().slice(-8)}`}
           onConfirm={handleDeliveryConfirm}
         />

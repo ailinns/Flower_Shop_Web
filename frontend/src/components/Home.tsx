@@ -20,8 +20,9 @@ export function Home({ onNext, onCheckOrder }: HomeProps) {
             <MapPin className="w-10 h-10" style={{ color: "#62C4FF" }} />
           </div>
           <h1 className="mb-2 text-gray-900">ยินดีต้อนรับสู่ร้านดอกไม้</h1>
-          <p className="text-gray-700">กรุณาเลือกภาค และ สาขาที่คุณต้องการ</p>
+          <p className="text-gray-700">กรุณาเมนูที่คุณต้องการ</p>
         </div>
+        
 
 
 
