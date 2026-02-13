@@ -25,6 +25,21 @@ export default function ManagerLogin({ onLogin }: ManagerLoginProps) {
         setError(data.message || 'เข้าสู่ระบบไม่สำเร็จ');
         return;
       }
+
+      // Check if user is a manager (role_id = 2)
+      // Role IDs: 1=admin, 4=manager, 3=florist, 2=cashier, 5=rider, 6=executive
+      const MANAGER_ROLE_ID = 4;
+      if (data.employee.role_id !== MANAGER_ROLE_ID) {
+        setError('คุณไม่มีสิทธิ์เข้าใช้ระบบนี้ (เฉพาะผู้จัดการสาขาเท่านั้น)');
+        console.log('Unauthorized access attempt by user with role_id:', data.employee.role_id);
+        return;
+      }
+
+      // Store manager info including branch_id
+      localStorage.setItem('manager_id', data.employee.employee_id);
+      localStorage.setItem('manager_name', `${data.employee.name} ${data.employee.surname}`);
+      localStorage.setItem('branch_id', data.employee.branch_id);
+
       onLogin();
       navigate('/manager/dashboard');
     } catch (err) {

@@ -1,91 +1,87 @@
-import { useState } from 'react';
+import { ArrowLeft, Download, Search } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search, Download, Calendar, Filter } from 'lucide-react';
+
+interface Order {
+  id: string;
+  code: string;
+  date: string;
+  customer: string;
+  phone: string;
+  total: number;
+  status: string;
+  payment?: string;
+}
 
 export default function OrderHistory() {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
-  const [dateFilter, setDateFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const orders = [
-    {
-      id: 'ORD7F8K2M',
-      date: '2025-12-04 14:30',
-      customer: 'เจมส์ วงศ์',
-      phone: '089-223-4555',
-      items: 'ช่อกุหลาบสีชมพู x2',
-      total: 95.00,
-      status: 'จัดส่งแล้ว',
-      payment: 'โอนเงิน'
-    },
-    {
-      id: 'ORD9X2L5N',
-      date: '2025-12-04 15:15',
-      customer: 'เจน สมิธ',
-      phone: '085-652-3361',
-      items: 'ช่อทานตะวัน x1',
-      total: 78.00,
-      status: 'กำลังจัดส่ง',
-      payment: 'QR Code'
-    },
-    {
-      id: 'ORDM4P8Q1',
-      date: '2025-12-04 13:45',
-      customer: 'ไมค์ จอห์น',
-      phone: '092-901-2523',
-      items: 'ช่อทิวลิป x3',
-      total: 120.00,
-      status: 'จัดส่งแล้ว',
-      payment: 'QR Code'
-    },
-    {
-      id: 'ORDK7H3W9',
-      date: '2025-12-04 12:20',
-      customer: 'ซาร่า บราวน์',
-      phone: '063-345-6523',
-      items: 'กล้วยไม้สีขาว x1',
-      total: 85.00,
-      status: 'จัดส่งแล้ว',
-      payment: 'บัตรเครดิต'
-    },
-    {
-      id: 'ORDP2N5M8',
-      date: '2025-12-03 16:45',
-      customer: 'ทอม วิลสัน',
-      phone: '055-789-0123',
-      items: 'แจกันแก้ว x2',
-      total: 50.00,
-      status: 'จัดส่งแล้ว',
-      payment: 'โอนเงิน'
-    },
-    {
-      id: 'ORDF9K3L1',
-      date: '2025-12-03 11:30',
-      customer: 'เอมิลี่ เดวิส',
-      phone: '055-234-5678',
-      items: 'ช่อกุหลาบสีชมพู x1',
-      total: 45.00,
-      status: 'ยกเลิก',
-      payment: 'QR Code'
+  useEffect(() => {
+    const branchId = localStorage.getItem('branch_id');
+    if (!branchId) {
+      navigate('/manager/login');
+      return;
     }
-  ];
+
+    // Fetch all orders for this branch
+    fetch(`http://localhost:3000/api/order/branches/${branchId}?limit=10000`)
+      .then(res => res.json())
+      .then((rows: any[]) => {
+        const mapped = rows.map(r => ({
+          id: String(r.order_id),
+          code: r.order_code || String(r.order_id),
+          date: new Date(r.created_at).toLocaleString('th-TH', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          }),
+          customer: r.customer_name || '',
+          phone: r.phone || '',
+          total: Number(r.total_amount || 0),
+          status: r.order_status || '',
+          payment: r.payment_method_name || 'ไม่ระบุ'
+        }));
+        setOrders(mapped);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Failed to load orders:', err);
+        setLoading(false);
+      });
+  }, [navigate]);
 
   const filteredOrders = orders.filter(order => {
-    const matchesSearch = order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    const matchesSearch = order.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          order.customer.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || order.status.toLowerCase() === statusFilter.toLowerCase();
     return matchesSearch && matchesStatus;
   });
 
   const getStatusColor = (status: string) => {
-    const colors = {
-      'จัดส่งแล้ว': 'bg-green-100 text-green-800',
-      'กำลังจัดส่ง': 'bg-blue-100 text-blue-800',
-      'กำลังจัดเตรียม': 'bg-yellow-100 text-yellow-800',
-      'ยกเลิก': 'bg-red-100 text-red-800'
+    const colors: Record<string, string> = {
+      'received': 'bg-blue-100 text-blue-800',
+      'preparing': 'bg-orange-100 text-orange-800',
+      'shipping': 'bg-blue-100 text-blue-800',
+      'delivered': 'bg-green-100 text-green-800'
     };
-    return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800';
+    return colors[status] || 'bg-gray-100 text-gray-800';
+  };
+
+  const getStatusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      'received': 'รับคำสั่งซื้อ',
+      'preparing': 'กำลังจัดเตรียม',
+      'shipping': 'กำลังจัดส่ง',
+      'delivered': 'จัดส่งสำเร็จ'
+    };
+    return labels[status] || status;
   };
 
   const totalRevenue = filteredOrders.reduce((sum, order) => sum + order.total, 0);
@@ -115,12 +111,12 @@ export default function OrderHistory() {
           </div>
           <div className="bg-white rounded-xl shadow-md p-6">
             <p className="text-sm text-gray-600 mb-1">ยอดรวมทั้งหมด</p>
-            <p className="text-3xl text-blue-600">${totalRevenue.toFixed(2)}</p>
+            <p className="text-3xl text-blue-600">฿{totalRevenue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           </div>
           <div className="bg-white rounded-xl shadow-md p-6">
             <p className="text-sm text-gray-600 mb-1">คำสั่งซื้อที่เสร็จสมบูรณ์</p>
             <p className="text-3xl text-green-600">
-              {filteredOrders.filter(o => o.status === 'จัดส่งแล้ว').length}
+              {filteredOrders.filter(o => o.status === 'delivered').length}
             </p>
           </div>
         </div>
@@ -145,10 +141,10 @@ export default function OrderHistory() {
                 className="px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none bg-white"
               >
                 <option value="all">สถานะทั้งหมด</option>
-                <option value="จัดส่งแล้ว">จัดส่งแล้ว</option>
-                <option value="กำลังจัดส่ง">กำลังจัดส่ง</option>
-                <option value="กำลังจัดเตรียม">กำลังจัดเตรียม</option>
-                <option value="ยกเลิก">ยกเลิก</option>
+                <option value="received">รับคำสั่งซื้อ</option>
+                <option value="preparing">กำลังจัดเตรียม</option>
+                <option value="shipping">กำลังจัดส่ง</option>
+                <option value="delivered">จัดส่งสำเร็จ</option>
               </select>
               <button className="px-6 py-3 bg-indigo-500 text-white rounded-xl hover:bg-indigo-600 transition-colors flex items-center gap-2">
                 <Download className="w-5 h-5" />
@@ -165,22 +161,17 @@ export default function OrderHistory() {
               <thead className="bg-gray-50 border-b-2 border-gray-200">
                 <tr>
                   <th className="px-6 py-4 text-left text-sm text-gray-600">รหัสคำสั่งซื้อ</th>
-                  <th className="px-6 py-4 text-left text-sm text-gray-600">วันที่และเวลา</th>
-                  <th className="px-6 py-4 text-left text-sm text-gray-600">ลูกค้า</th>
-                  <th className="px-6 py-4 text-left text-sm text-gray-600">รายการ</th>
-                  <th className="px-6 py-4 text-left text-sm text-gray-600">ช่องทางชำระเงิน</th>
-                  <th className="px-6 py-4 text-left text-sm text-gray-600">ยอดรวม</th>
+                  <th className="px-6 py-4 text-left text-sm text-gray-600">ชื่อลูกค้า</th>
+                  <th className="px-6 py-4 text-left text-sm text-gray-600">ยอดเงิน</th>
                   <th className="px-6 py-4 text-left text-sm text-gray-600">สถานะ</th>
+                  <th className="px-6 py-4 text-left text-sm text-gray-600">เวลาสั่งซื้อ</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredOrders.map((order) => (
                   <tr key={order.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
                     <td className="px-6 py-4">
-                      <span className="text-blue-600">{order.id}</span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      {order.date}
+                      <span className="text-blue-600">{order.code}</span>
                     </td>
                     <td className="px-6 py-4">
                       <div>
@@ -188,19 +179,16 @@ export default function OrderHistory() {
                         <p className="text-sm text-gray-500">{order.phone}</p>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {order.items}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      {order.payment}
-                    </td>
                     <td className="px-6 py-4 text-gray-900">
-                      ${order.total.toFixed(2)}
+                      ฿{order.total.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td className="px-6 py-4">
                       <span className={`px-3 py-1 rounded-full text-sm ${getStatusColor(order.status)}`}>
-                        {order.status}
+                        {getStatusLabel(order.status)}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-600">
+                      {order.date}
                     </td>
                   </tr>
                 ))}
@@ -210,7 +198,7 @@ export default function OrderHistory() {
 
           {filteredOrders.length === 0 && (
             <div className="text-center py-12">
-              <p className="text-gray-500">ไม่พบคำสั่งซื้อ</p>
+              <p className="text-gray-500">{loading ? 'กำลังโหลด...' : 'ไม่พบคำสั่งซื้อ'}</p>
             </div>
           )}
         </div>

@@ -423,6 +423,89 @@ app.post('/api/employee/login', async (req, res) => {
   }
 });
 
+// Manager Dashboard Stats endpoint
+app.get('/api/manager/dashboard-stats/:branchId', async (req, res) => {
+  try {
+    const { branchId } = req.params;
+    const { date_range, product_type_id } = req.query || {};
+    const params = [Number(branchId)];
+
+    // Build date condition based on date_range param
+    let dateCondition = '';
+    const dateParams = [];
+    if (date_range === 'today') {
+      dateCondition = ' AND DATE(o.created_at) = CURDATE()';
+    } else if (date_range === 'yesterday') {
+      dateCondition = ' AND DATE(o.created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)';
+    } else if (date_range === 'week') {
+      dateCondition = ' AND YEARWEEK(o.created_at) = YEARWEEK(CURDATE())';
+    } else if (date_range === 'month') {
+      dateCondition = ' AND YEAR(o.created_at) = YEAR(CURDATE()) AND MONTH(o.created_at) = MONTH(CURDATE())';
+    } else if (date_range === 'year') {
+      dateCondition = ' AND YEAR(o.created_at) = YEAR(CURDATE())';
+    } else if (date_range && /^\d{4}-\d{2}$/.test(String(date_range))) {
+      const [yr, mo] = String(date_range).split('-');
+      dateCondition = ' AND YEAR(o.created_at) = ? AND MONTH(o.created_at) = ?';
+      dateParams.push(Number(yr), Number(mo));
+    }
+
+    // Build product type filter condition
+    let productTypeCondition = '';
+    const productTypeParams = [];
+    if (product_type_id) {
+      const ptId = Number(product_type_id);
+      if (!Number.isNaN(ptId)) {
+        productTypeCondition = ' AND EXISTS (SELECT 1 FROM shopping_cart sc JOIN product pr ON pr.product_id = sc.product_id WHERE pr.product_type_id = ? AND sc.order_id = o.order_id)';
+        productTypeParams.push(ptId);
+      }
+    }
+
+    // Total revenue with date and product type filter
+    const revenueSql = `
+      SELECT IFNULL(SUM(total_amount), 0) AS total_revenue
+      FROM \`order\` o
+      WHERE o.branch_id = ?${dateCondition}${productTypeCondition}
+    `;
+    const revenueParams = [...params, ...dateParams, ...productTypeParams];
+    const [[revenueRow]] = await pool.query(revenueSql, revenueParams);
+
+    // Order count with date and product type filter
+    const orderCountSql = `
+      SELECT COUNT(*) AS total_orders
+      FROM \`order\` o
+      WHERE o.branch_id = ?${dateCondition}${productTypeCondition}
+    `;
+    const orderCountParams = [...params, ...dateParams, ...productTypeParams];
+    const [[orderCountRow]] = await pool.query(orderCountSql, orderCountParams);
+
+    // Orders in progress (order_status IN 'received', 'preparing', 'shipping') with date and product type filter
+    const inProgressSql = `
+      SELECT COUNT(*) AS in_progress_orders
+      FROM \`order\` o
+      WHERE o.branch_id = ?${dateCondition} AND o.order_status IN ('received', 'preparing', 'shipping')${productTypeCondition}
+    `;
+    const inProgressParams = [...params, ...dateParams, ...productTypeParams];
+    const [[inProgressRow]] = await pool.query(inProgressSql, inProgressParams);
+
+    // Available products (total count of products)
+    const availableProductsSql = `
+      SELECT COUNT(DISTINCT p.product_id) AS available_products
+      FROM product p
+    `;
+    const [[availableProductsRow]] = await pool.query(availableProductsSql);
+
+    return res.json({
+      total_revenue: Number(revenueRow.total_revenue) || 0,
+      total_orders: Number(orderCountRow.total_orders) || 0,
+      in_progress_orders: Number(inProgressRow.in_progress_orders) || 0,
+      available_products: Number(availableProductsRow.available_products) || 0
+    });
+  } catch (err) {
+    console.error('❌ Manager Dashboard Stats Error:', err.message);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
 app.get("/api/order/branches/:branchId", async (req, res) => {
   try {
     const branchId = req.params.branchId;
@@ -525,8 +608,8 @@ app.post('/api/executive/login', async (req, res) => {
 // Executive overview: totals for current year, branch list and customer count
 app.get('/api/executive/overview', async (req, res) => {
   try {
-    // Support optional filters via query params: start_date, end_date, branch_ids (csv), branch_names (csv)
-    const { start_date, end_date, branch_ids, branch_names } = req.query || {};
+    // Support optional filters via query params: start_date, end_date, branch_ids (csv), branch_names (csv), product_type
+    const { start_date, end_date, branch_ids, branch_names, product_type } = req.query || {};
     const dateCondition = (field = 'created_at') => {
       if (start_date && end_date) return `(DATE(${field}) BETWEEN ? AND ?)`;
       return `YEAR(${field}) = YEAR(CURDATE())`;
@@ -552,13 +635,27 @@ app.get('/api/executive/overview', async (req, res) => {
       }
     }
 
-    const revSql = `SELECT IFNULL(SUM(total_amount),0) AS total_revenue FROM \`order\` WHERE ${dateCondition('created_at')}${branchFilterSqlOrder}`;
-    const revParams = start_date && end_date ? [start_date, end_date, ...params] : params;
+    // Add product_type filter for revenue and orders queries
+    let productFilterSql = '';
+    let productFilterParams = [];
+    if (product_type) {
+      const asNum = Number(product_type);
+      if (!Number.isNaN(asNum)) {
+        productFilterSql = ` AND EXISTS (SELECT 1 FROM shopping_cart sc JOIN product pr ON pr.product_id = sc.product_id WHERE pr.product_type_id = ? AND sc.order_id = o.order_id)`;
+        productFilterParams = [asNum];
+      } else {
+        productFilterSql = ` AND EXISTS (SELECT 1 FROM shopping_cart sc JOIN product pr ON pr.product_id = sc.product_id JOIN product_type pt ON pt.product_type_id = pr.product_type_id WHERE pt.product_type_name = ? AND sc.order_id = o.order_id)`;
+        productFilterParams = [String(product_type)];
+      }
+    }
+
+    const revSql = `SELECT IFNULL(SUM(total_amount),0) AS total_revenue FROM \`order\` o WHERE ${dateCondition('o.created_at')}${branchFilterSqlOrder}${productFilterSql}`;
+    const revParams = start_date && end_date ? [start_date, end_date, ...params, ...productFilterParams] : [...params, ...productFilterParams];
     const [[revRow]] = await pool.query(revSql, revParams);
 
     // Total orders this year
-    const ordersSql = `SELECT COUNT(*) AS total_orders FROM \`order\` WHERE ${dateCondition('created_at')}${branchFilterSqlOrder}`;
-    const ordersParams = start_date && end_date ? [start_date, end_date, ...params] : params;
+    const ordersSql = `SELECT COUNT(*) AS total_orders FROM \`order\` o WHERE ${dateCondition('o.created_at')}${branchFilterSqlOrder}${productFilterSql}`;
+    const ordersParams = start_date && end_date ? [start_date, end_date, ...params, ...productFilterParams] : [...params, ...productFilterParams];
     const [[ordersRow]] = await pool.query(ordersSql, ordersParams);
 
     // Branch count and list
@@ -577,38 +674,39 @@ app.get('/api/executive/overview', async (req, res) => {
        FROM branch b
        LEFT JOIN (
          SELECT branch_id, COUNT(*) AS orders, SUM(total_amount) AS revenue
-         FROM \`order\`
-         WHERE ${dateCondition('created_at')}${branchFilterSqlOrder}
+         FROM \`order\` o
+         WHERE ${dateCondition('o.created_at')}${branchFilterSqlOrder}${productFilterSql}
          GROUP BY branch_id
        ) oa ON oa.branch_id = b.branch_id
        LEFT JOIN employee emp ON emp.branch_id = b.branch_id
        GROUP BY b.branch_id, b.branch_name, oa.orders, oa.revenue
        ORDER BY revenue DESC`;
-    const branchPerfParams = start_date && end_date ? [start_date, end_date, ...params] : params;
+    const branchPerfParams = start_date && end_date ? [start_date, end_date, ...params, ...productFilterParams] : [...params, ...productFilterParams];
     const [branchPerf] = await pool.query(branchPerfSql, branchPerfParams);
 
     // Top branch (highest revenue)
      const topBranchSql = `SELECT b.branch_id, b.branch_name, IFNULL(SUM(o.total_amount),0) AS revenue
        FROM \`order\` o
        JOIN branch b ON b.branch_id = o.branch_id
-       WHERE ${dateCondition('o.created_at')}${branchFilterSqlO}
+       WHERE ${dateCondition('o.created_at')}${branchFilterSqlO}${productFilterSql}
        GROUP BY b.branch_id, b.branch_name
        ORDER BY revenue DESC
        LIMIT 1`;
-     const topBranchParams = start_date && end_date ? [start_date, end_date, ...params] : params;
+     const topBranchParams = start_date && end_date ? [start_date, end_date, ...params, ...productFilterParams] : [...params, ...productFilterParams];
      const [topBranchRows] = await pool.query(topBranchSql, topBranchParams);
 
     // Top flower (most sold) based on flower_detail linked to shopping_cart within current year orders
      const topFlowerSql = `SELECT ft.flower_name, COUNT(*) AS qty
        FROM shopping_cart sc
        JOIN \`order\` o ON sc.order_id = o.order_id
+       JOIN product pr ON pr.product_id = sc.product_id
        JOIN flower_detail fd ON fd.shopping_cart_id = sc.shopping_cart_id
        JOIN flower_type ft ON ft.flower_type_id = fd.flower_type_id
-       WHERE ${dateCondition('o.created_at')}${branchFilterSqlO}
+       WHERE ${dateCondition('o.created_at')}${branchFilterSqlO}${productFilterSql}
        GROUP BY ft.flower_type_id, ft.flower_name
        ORDER BY qty DESC
        LIMIT 1`;
-     const topFlowerParams = start_date && end_date ? [start_date, end_date, ...params] : params;
+     const topFlowerParams = start_date && end_date ? [start_date, end_date, ...params, ...productFilterParams] : [...params, ...productFilterParams];
      const [topFlowerRows] = await pool.query(topFlowerSql, topFlowerParams);
 
     return res.json({
@@ -629,7 +727,7 @@ app.get('/api/executive/overview', async (req, res) => {
 // Monthly revenue for current year (returns array with month numbers and revenue)
 app.get('/api/executive/monthly-revenue', async (req, res) => {
   try {
-    const { start_date, end_date, branch_ids, branch_names } = req.query || {};
+    const { start_date, end_date, branch_ids, branch_names, product_type } = req.query || {};
     const params = [];
     let branchFilterSql = '';
     if (branch_ids) {
@@ -651,12 +749,26 @@ app.get('/api/executive/monthly-revenue', async (req, res) => {
       return `YEAR(${field}) = YEAR(CURDATE())`;
     };
 
+    // Add product_type filter
+    let productFilterSqlMonth = '';
+    let productFilterParamsMonth = [];
+    if (product_type) {
+      const asNum = Number(product_type);
+      if (!Number.isNaN(asNum)) {
+        productFilterSqlMonth = ` AND EXISTS (SELECT 1 FROM shopping_cart sc JOIN product pr ON pr.product_id = sc.product_id WHERE pr.product_type_id = ? AND sc.order_id = o.order_id)`;
+        productFilterParamsMonth = [asNum];
+      } else {
+        productFilterSqlMonth = ` AND EXISTS (SELECT 1 FROM shopping_cart sc JOIN product pr ON pr.product_id = sc.product_id JOIN product_type pt ON pt.product_type_id = pr.product_type_id WHERE pt.product_type_name = ? AND sc.order_id = o.order_id)`;
+        productFilterParamsMonth = [String(product_type)];
+      }
+    }
+
     const sql = `SELECT MONTH(created_at) AS month, IFNULL(SUM(total_amount),0) AS revenue
-       FROM \`order\`
-       WHERE ${dateCondition('created_at')}${branchFilterSql}
+       FROM \`order\` o
+       WHERE ${dateCondition('o.created_at')}${branchFilterSql}${productFilterSqlMonth}
        GROUP BY MONTH(created_at)
        ORDER BY MONTH(created_at)`;
-    const sqlParams = start_date && end_date ? [start_date, end_date, ...params] : params;
+    const sqlParams = start_date && end_date ? [start_date, end_date, ...params, ...productFilterParamsMonth] : [...params, ...productFilterParamsMonth];
     const [rows] = await pool.query(sql, sqlParams);
 
     // Build full 12-month array (1..12) with zeros for missing months
@@ -738,6 +850,133 @@ app.get('/api/executive/category-sales', async (req, res) => {
     return res.json({ total, items: mapped });
   } catch (err) {
     console.error('❌ Category sales error:', err);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
+// Weekly sales for manager dashboard (last 7 days)
+app.get('/api/manager/weekly-sales/:branchId', async (req, res) => {
+  try {
+    const { branchId } = req.params;
+    const params = [Number(branchId)];
+
+    const sql = `
+      SELECT DATE(o.created_at) AS date, IFNULL(SUM(o.total_amount),0) AS sales
+      FROM \`order\` o
+      WHERE o.branch_id = ? AND DATE(o.created_at) >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+      GROUP BY DATE(o.created_at)
+      ORDER BY DATE(o.created_at)
+    `;
+
+    const [rows] = await pool.query(sql, params);
+
+    // Build full 7-day list (from 6 days ago -> today) and fill missing days with 0
+    const results = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const iso = d.toISOString().slice(0, 10);
+      const found = rows.find(r => String(r.date) === iso);
+      results.push({ date: iso, sales: found ? Number(found.sales) : 0 });
+    }
+
+    return res.json(results);
+  } catch (err) {
+    console.error('❌ Weekly sales error:', err.message);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
+// Top selling products for a branch
+app.get('/api/manager/top-products/:branchId', async (req, res) => {
+  try {
+    const { branchId } = req.params;
+    const { date_range, product_type_id } = req.query || {};
+    const params = [Number(branchId)];
+
+    // Build date condition based on date_range param
+    let dateCondition = '';
+    const dateParams = [];
+    if (date_range === 'today') {
+      dateCondition = ' AND DATE(o.created_at) = CURDATE()';
+    } else if (date_range === 'yesterday') {
+      dateCondition = ' AND DATE(o.created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)';
+    } else if (date_range === 'week') {
+      dateCondition = ' AND YEARWEEK(o.created_at) = YEARWEEK(CURDATE())';
+    } else if (date_range === 'month') {
+      dateCondition = ' AND YEAR(o.created_at) = YEAR(CURDATE()) AND MONTH(o.created_at) = MONTH(CURDATE())';
+    } else if (date_range === 'year') {
+      dateCondition = ' AND YEAR(o.created_at) = YEAR(CURDATE())';
+    } else if (date_range && /^\d{4}-\d{2}$/.test(String(date_range))) {
+      const [yr, mo] = String(date_range).split('-');
+      dateCondition = ' AND YEAR(o.created_at) = ? AND MONTH(o.created_at) = ?';
+      dateParams.push(Number(yr), Number(mo));
+    }
+
+    // Build product type filter condition
+    let productTypeCondition = '';
+    const productTypeParams = [];
+    if (product_type_id) {
+      const ptId = Number(product_type_id);
+      if (!Number.isNaN(ptId)) {
+        productTypeCondition = ' AND pr.product_type_id = ?';
+        productTypeParams.push(ptId);
+      }
+    }
+
+    const sql = `
+      SELECT pr.product_id,
+             pr.product_name,
+             IFNULL(SUM(sc.qty),0) AS qty_sold,
+             IFNULL(SUM(sc.qty * sc.price_total),0) AS revenue,
+             pt.product_type_name AS product_type
+      FROM shopping_cart sc
+      JOIN \`order\` o ON sc.order_id = o.order_id
+      JOIN product pr ON pr.product_id = sc.product_id
+      LEFT JOIN product_type pt ON pt.product_type_id = pr.product_type_id
+      WHERE o.branch_id = ?${dateCondition}${productTypeCondition}
+      GROUP BY pr.product_id, pr.product_name, pt.product_type_name
+      ORDER BY qty_sold DESC
+      LIMIT 10
+    `;
+
+    const queryParams = [...params, ...dateParams, ...productTypeParams];
+    const [rows] = await pool.query(sql, queryParams);
+    return res.json(rows);
+  } catch (err) {
+    console.error('❌ Top products error:', err.message);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
+// Order date info for a branch (min/max and months available)
+app.get('/api/order/date-info/:branchId', async (req, res) => {
+  try {
+    const { branchId } = req.params;
+    const params = [Number(branchId)];
+
+    const [minmaxRows] = await pool.query(
+      `SELECT MIN(DATE(created_at)) AS min_date, MAX(DATE(created_at)) AS max_date FROM \`order\` WHERE branch_id = ?`,
+      params
+    );
+
+    const [monthsRows] = await pool.query(
+      `SELECT YEAR(created_at) AS y, MONTH(created_at) AS m, COUNT(*) AS cnt
+       FROM \`order\`
+       WHERE branch_id = ?
+       GROUP BY YEAR(created_at), MONTH(created_at)
+       ORDER BY YEAR(created_at) DESC, MONTH(created_at) DESC`,
+      params
+    );
+
+    const min_date = minmaxRows[0]?.min_date || null;
+    const max_date = minmaxRows[0]?.max_date || null;
+
+    const months = monthsRows.map((r) => ({ year: r.y, month: r.m, count: r.cnt }));
+
+    return res.json({ min_date, max_date, months });
+  } catch (err) {
+    console.error('❌ Date info error:', err.message);
     return res.status(500).json({ error: 'Server error', detail: err.message });
   }
 });

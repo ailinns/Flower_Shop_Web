@@ -1,7 +1,7 @@
+import { Building2, DollarSign, Filter, LogOut, ShoppingBag, Users, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DollarSign, ShoppingBag, TrendingUp, Users, Building2, LogOut, Package, Clock, Filter, X } from 'lucide-react';
-import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { useState, useEffect } from 'react';
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 export default function ExecutiveDashboard() {
   const navigate = useNavigate();
@@ -11,10 +11,7 @@ export default function ExecutiveDashboard() {
   // Filter states
   const [dateRange, setDateRange] = useState('this-year');
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
-  const [kpiView, setKpiView] = useState('revenue');
   const [productCategory, setProductCategory] = useState('all');
-  const [operationalMetric, setOperationalMetric] = useState('all');
-  const [compareMode, setCompareMode] = useState(false);
 
   const kpiData = [
     { label: 'รายได้รวม', value: overview ? `฿${overview.total_revenue.toLocaleString()}` : '฿—', change: '+', color: 'bg-blue-500', icon: DollarSign },
@@ -25,6 +22,7 @@ export default function ExecutiveDashboard() {
 
   const [monthlyRevenue, setMonthlyRevenue] = useState<{ month: string; revenue: number }[]>([]);
   const [branchesList, setBranchesList] = useState<Array<{ branch_id: number; branch_name: string }>>([]);
+  const [productTypes, setProductTypes] = useState<Array<{ product_type_id: number; product_type_name: string }>>([]);
 
   // map month index to Thai short names
   const monthNames = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
@@ -61,10 +59,7 @@ export default function ExecutiveDashboard() {
   const clearAllFilters = () => {
     setDateRange('this-year');
     setSelectedBranches([]);
-    setKpiView('revenue');
     setProductCategory('all');
-    setOperationalMetric('all');
-    setCompareMode(false);
   };
 
   // build query params helper
@@ -118,22 +113,25 @@ export default function ExecutiveDashboard() {
       params.branch_ids = allBranchIds.join(',');
     }
 
-    // product category -> product_type param (map known slugs)
+    // product category -> product_type param
     if (productCategory && productCategory !== 'all') {
-      if (productCategory === 'bouquet') params.product_type = 'Bouquet';
-      else if (productCategory === 'vase') params.product_type = 'Vase';
-      else params.product_type = productCategory;
+      params.product_type = productCategory;
     }
 
     return new URLSearchParams(params).toString();
   };
 
-  // fetch branch list once
+  // fetch branch list and product types once
   useEffect(() => {
     fetch('http://localhost:3000/api/branches')
       .then(res => res.json())
       .then((data: Array<{ branch_id: number; branch_name: string }>) => setBranchesList(data || []))
       .catch(err => console.error('Failed to load branches:', err));
+
+    fetch('http://localhost:3000/api/product-types')
+      .then(res => res.json())
+      .then((data: Array<{ product_type_id: number; product_type_name: string }>) => setProductTypes(data || []))
+      .catch(err => console.error('Failed to load product types:', err));
   }, []);
 
   // fetch data when filters or branch list changes (use branch list length to avoid loop)
@@ -253,40 +251,7 @@ export default function ExecutiveDashboard() {
                   <option value="this-year">ปีนี้</option>
                   <option value="last-month">เดือนที่แล้ว</option>
                   <option value="last-year">ปีที่แล้ว</option>
-                  <option value="custom">กำหนดเอง</option>
-                </select>
-              </div>
-
-              {/* Compare Mode Toggle */}
-              <div>
-                <label className="block text-sm text-gray-700 mb-2">โหมดเปรียบเทียบ</label>
-                <div className="flex items-center gap-3 h-[42px]">
-                  <button
-                    onClick={() => setCompareMode(!compareMode)}
-                    className={`px-4 py-2 rounded-lg transition-colors ${
-                      compareMode ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'
-                    }`}
-                  >
-                    {compareMode ? 'เปิด' : 'ปิด'}
-                  </button>
-                  <span className="text-sm text-gray-600">
-                    {compareMode ? 'กำลังเปรียบเทียบกับช่วงก่อนหน้า' : 'ไม่เปรียบเทียบ'}
-                  </span>
-                </div>
-              </div>
-
-              {/* KPI View Selection */}
-              <div>
-                <label className="block text-sm text-gray-700 mb-2">มุมมอง KPI</label>
-                <select
-                  value={kpiView}
-                  onChange={(e) => setKpiView(e.target.value)}
-                  className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="revenue">รายได้</option>
-                  <option value="orders">จำนวนออเดอร์</option>
-                  <option value="aov">มูลค่าเฉลี่ยต่อออเดอร์ (AOV)</option>
-                  <option value="growth">อัตราการเติบโต</option>
+                  <option value="custom">ทั้งหมด</option>
                 </select>
               </div>
 
@@ -299,26 +264,11 @@ export default function ExecutiveDashboard() {
                   className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
                 >
                   <option value="all">ทั้งหมด</option>
-                  <option value="bouquet">ช่อดอกไม้</option>
-                  <option value="vase">แจกัน</option>
-                  <option value="top-products">สินค้าขายดี Top 10</option>
-                  <option value="comparison">เปรียบเทียบสัดส่วน</option>
-                </select>
-              </div>
-
-              {/* Operational Metric Filter */}
-              <div>
-                <label className="block text-sm text-gray-700 mb-2">ตัวชี้วัดการดำเนินงาน</label>
-                <select
-                  value={operationalMetric}
-                  onChange={(e) => setOperationalMetric(e.target.value)}
-                  className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="all">ทั้งหมด</option>
-                  <option value="delivery-success">% จัดส่งสำเร็จ</option>
-                  <option value="pending-orders">ออเดอร์ค้าง</option>
-                  <option value="avg-fulfillment">เวลาเฉลี่ยการดำเนินการ</option>
-                  <option value="payment-issues">ปัญหาการชำระเงิน</option>
+                  {productTypes.map((type) => (
+                    <option key={type.product_type_id} value={type.product_type_name}>
+                      {type.product_type_name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -362,17 +312,9 @@ export default function ExecutiveDashboard() {
                     dateRange === 'this-week' ? 'สัปดาห์นี้' :
                     dateRange === 'this-year' ? 'ปีนี้' :
                     dateRange === 'last-month' ? 'เดือนที่แล้ว' :
-                    dateRange === 'last-year' ? 'ปีที่แล้ว' : 'กำหนดเอง'
+                    dateRange === 'last-year' ? 'ปีที่แล้ว' : 'ทั้งหมด'
                   }
                   <button onClick={() => setDateRange('this-year')} className="hover:bg-blue-200 rounded-full p-0.5">
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-              {compareMode && (
-                <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm flex items-center gap-2">
-                  โหดเปรียบเทียบ: เปิด
-                  <button onClick={() => setCompareMode(false)} className="hover:bg-purple-200 rounded-full p-0.5">
                     <X className="w-3 h-3" />
                   </button>
                 </span>
@@ -381,14 +323,6 @@ export default function ExecutiveDashboard() {
                 <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm flex items-center gap-2">
                   สาขาที่เลือก: {selectedBranches.length} สาขา
                   <button onClick={() => setSelectedBranches([])} className="hover:bg-green-200 rounded-full p-0.5">
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-              {kpiView !== 'revenue' && (
-                <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm flex items-center gap-2">
-                  KPI: {kpiView === 'orders' ? 'จำนวนออเดอร์' : kpiView === 'aov' ? 'AOV' : 'อัตราการเติบโต'}
-                  <button onClick={() => setKpiView('revenue')} className="hover:bg-blue-200 rounded-full p-0.5">
                     <X className="w-3 h-3" />
                   </button>
                 </span>
